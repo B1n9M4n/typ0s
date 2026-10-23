@@ -137,8 +137,8 @@ func keyCodeToString(_ code: Int64, flags: CGEventFlags) -> String {
 }
 
 // MARK: - App State (persisted)
-class TypoFlowState: ObservableObject {
-    static let shared = TypoFlowState()
+class Typ0sState: ObservableObject {
+    static let shared = Typ0sState()
     private let d = UserDefaults.standard
 
     @Published var isNuPhyConnected = false
@@ -264,7 +264,7 @@ class HardwareKeyboardMonitor {
         }
 
         DispatchQueue.main.async {
-            let s = TypoFlowState.shared
+            let s = Typ0sState.shared
             let was = s.isNuPhyConnected
             s.isNuPhyConnected = external != nil
             s.detectedKeyboardName = external ?? "Built-in Keyboard"
@@ -535,7 +535,7 @@ struct CandyOrb: View {
 
 /// Frosted-glass capsule with a slowly rotating candy ring around its edge
 struct FloatingPillView: View {
-    @ObservedObject var state = TypoFlowState.shared
+    @ObservedObject var state = Typ0sState.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var onOpenSettings: () -> Void
 
@@ -592,8 +592,8 @@ struct FloatingPillView: View {
 
 // MARK: - Hotkey Row
 struct HotkeyRow: View {
-    @ObservedObject var state = TypoFlowState.shared
-    let target: TypoFlowState.RecordingTarget
+    @ObservedObject var state = Typ0sState.shared
+    let target: Typ0sState.RecordingTarget
     let title: String
     let subtitle: String
     let pastel: Pastel
@@ -646,7 +646,7 @@ struct HotkeyRow: View {
 enum SettingsTab: String, CaseIterable { case keys = "Hotkeys", dictionary = "Dictionary", test = "Test" }
 
 struct HotkeysTab: View {
-    @ObservedObject var state = TypoFlowState.shared
+    @ObservedObject var state = Typ0sState.shared
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             NeuCard {
@@ -757,7 +757,7 @@ struct DictionaryTab: View {
 }
 
 struct TestTab: View {
-    @ObservedObject var state = TypoFlowState.shared
+    @ObservedObject var state = Typ0sState.shared
     // Everyday fast-typing slips; each one is fully corrected by the current engine
     static let samples = [
         "i think the tests were flaky agian, can you rerun the build tomorow morning",
@@ -1027,7 +1027,7 @@ enum TypoInjector {
 
 // MARK: - Main Window
 struct SettingsDashboardView: View {
-    @ObservedObject var state = TypoFlowState.shared
+    @ObservedObject var state = Typ0sState.shared
     @State private var tab: SettingsTab = .keys
     @Namespace private var tabNS
 

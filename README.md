@@ -17,6 +17,8 @@ I didn't want an AI rewriting my words, and I didn't want to recheck every line 
 
 That's typ0s.
 
+Honestly, when I first wrote the idea down, my last line was "I think this is a dumb idea." I built it anyway, on purpose. I think making a small, easy app with a slightly dumb concept is important: it gives you the feeling of actually getting started and shipping something real, instead of waiting for the perfect big idea. This is that first thing for me.
+
 ### How I use it
 
 1. Open Freewrite (or any editor), turn off backspace, and write as fast as you want.

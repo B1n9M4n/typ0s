@@ -27,7 +27,8 @@ class UserDictionaryStore: ObservableObject {
         didSet { save() }
     }
     
-    private let storageKey = "TypoFlow_CustomRules_v1"
+    private let storageKey = "typ0s_CustomRules_v1"
+    private let legacyStorageKey = "TypoFlow_CustomRules_v1"   // pre-rename name; read once so saved words carry over
     
     init() {
         load()
@@ -141,7 +142,12 @@ class UserDictionaryStore: ObservableObject {
     }
     
     private func load() {
-        if let data = UserDefaults.standard.data(forKey: storageKey),
+        let defaults = UserDefaults.standard
+        if defaults.data(forKey: storageKey) == nil, let old = defaults.data(forKey: legacyStorageKey) {
+            defaults.set(old, forKey: storageKey)
+            defaults.removeObject(forKey: legacyStorageKey)
+        }
+        if let data = defaults.data(forKey: storageKey),
            let decoded = try? JSONDecoder().decode([CustomRule].self, from: data) {
             customRules = decoded
         }

@@ -20,7 +20,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     let engine = FastTypoEngine()
     let keyboardMonitor = HardwareKeyboardMonitor()
-    let state = TypoFlowState.shared
+    let state = Typ0sState.shared
     var cancellables = Set<AnyCancellable>()
     
     // Double-tap Right Shift detector

@@ -2,11 +2,8 @@
 build/
 *.zip
 
-# Old local builds and scripts (not part of the project)
-/Typos
-/TypoFlow
-/TypoFlow.app/
-/start.sh
+# Local-only files (old builds, notes)
+/old-builds/
 /REVIEW.md
 
 .DS_Store
