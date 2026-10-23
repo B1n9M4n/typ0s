@@ -1,0 +1,1105 @@
+import Cocoa
+import SwiftUI
+import Carbon
+import ApplicationServices
+import IOKit
+import IOKit.hid
+
+// MARK: - Pastel Neumorphic Palette
+// Near-white base, two light sources (highlight top-left, shade bottom-right),
+// and pastel pairs (soft fill + deeper ink of the same hue) used sparingly.
+// Every token resolves per appearance, so the whole UI follows light/dark automatically.
+func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> NSColor {
+    NSColor(srgbRed: r, green: g, blue: b, alpha: a)
+}
+
+extension Color {
+    static func dynamic(_ light: NSColor, _ dark: NSColor) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+        })
+    }
+
+    static let nmBase = dynamic(rgb(0.961, 0.965, 0.980), rgb(0.122, 0.129, 0.157))      // #F5F6FA / #1F2128
+    static let nmRaised = dynamic(.white, rgb(0.165, 0.173, 0.208))                       // knobs, active segment
+    static let nmLight = dynamic(.white, rgb(1, 1, 1, 0.06))
+    static let nmShade = dynamic(rgb(0.72, 0.75, 0.84, 0.45), rgb(0, 0, 0, 0.55))
+    static let nmInk = dynamic(rgb(0.22, 0.23, 0.30), rgb(0.90, 0.91, 0.95))
+    static let nmMuted = dynamic(rgb(0.22, 0.23, 0.30, 0.5), rgb(0.90, 0.91, 0.95, 0.5))
+}
+
+// Candy palette: bubblegum pink, lemon and sky blue. Each gradient blends into a neighbour.
+struct Pastel {
+    let fill: Color
+    let fill2: Color   // gradient partner
+    let ink: Color
+
+    var gradient: AnyShapeStyle {
+        AnyShapeStyle(LinearGradient(colors: [fill, fill2], startPoint: .topLeading, endPoint: .bottomTrailing))
+    }
+    /// Colours for the slowly flowing gradient on primary controls
+    var flowColors: [Color] { [fill, fill2, fill] }
+
+    private static let bubblegumFill = Color.dynamic(rgb(1.00, 0.84, 0.92), rgb(0.45, 0.18, 0.33))
+    private static let lemonFill = Color.dynamic(rgb(1.00, 0.95, 0.68), rgb(0.40, 0.36, 0.12))
+    private static let skyFill = Color.dynamic(rgb(0.80, 0.92, 1.00), rgb(0.15, 0.29, 0.45))
+
+    static let bubblegum = Pastel(fill: bubblegumFill, fill2: skyFill,
+                                  ink: .dynamic(rgb(0.86, 0.25, 0.56), rgb(1.00, 0.68, 0.84)))
+    static let lemon = Pastel(fill: lemonFill, fill2: bubblegumFill,
+                              ink: .dynamic(rgb(0.62, 0.48, 0.00), rgb(1.00, 0.90, 0.45)))
+    static let sky = Pastel(fill: skyFill, fill2: bubblegumFill,
+                            ink: .dynamic(rgb(0.16, 0.50, 0.85), rgb(0.60, 0.82, 1.00)))
+
+    /// The three candy inks (adapt to light/dark), for text
+    static let candyInks: [Color] = [sky.ink, bubblegum.ink, lemon.ink]
+    /// Vivid fixed candy colours for the logo, orb and ring, so the white glyph reads in both modes
+    static let logoColors: [Color] = [Color(red: 0.30, green: 0.62, blue: 1.00),
+                                      Color(red: 1.00, green: 0.38, blue: 0.68),
+                                      Color(red: 1.00, green: 0.76, blue: 0.20)]
+}
+
+/// A gradient wider than its view that slides slowly back and forth, so colours flow
+struct FlowingGradient: View {
+    var colors: [Color]
+    var duration: Double = 7
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var phase = false
+
+    var body: some View {
+        GeometryReader { g in
+            LinearGradient(colors: colors + colors, startPoint: .leading, endPoint: .trailing)
+                .frame(width: g.size.width * 3, height: g.size.height)
+                .offset(x: phase ? -g.size.width * 2 : 0)
+        }
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.linear(duration: duration).repeatForever(autoreverses: true)) { phase = true }
+        }
+    }
+}
+
+/// Candy backdrop: three soft glows (sky, bubblegum, lemon) drifting slowly behind the window
+struct PastelBackdrop: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 24, paused: reduceMotion)) { ctx in
+            let t = reduceMotion ? 0 : ctx.date.timeIntervalSinceReferenceDate
+            ZStack {
+                Color.nmBase
+                glow(Pastel.sky.fill, opacity: 0.80, at: orbit(t, period: 26, phase: 0.0))
+                glow(Pastel.bubblegum.fill, opacity: 0.75, at: orbit(t, period: 32, phase: 2.1))
+                glow(Pastel.lemon.fill, opacity: scheme == .dark ? 0.30 : 0.70, at: orbit(t, period: 29, phase: 4.2))
+            }
+        }
+    }
+
+    /// A slow elliptical path around the window centre
+    private func orbit(_ t: TimeInterval, period: Double, phase: Double) -> UnitPoint {
+        let a = t / period * 2 * .pi + phase
+        return UnitPoint(x: 0.5 + 0.45 * cos(a), y: 0.5 + 0.40 * sin(a * 0.8))
+    }
+
+    private func glow(_ color: Color, opacity: Double, at center: UnitPoint) -> some View {
+        RadialGradient(colors: [color.opacity(opacity), .clear], center: center, startRadius: 0, endRadius: 360)
+    }
+}
+
+extension Font {
+    static func nm(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .rounded)
+    }
+}
+
+// MARK: - KeyCode Names
+func keyCodeToString(_ code: Int64, flags: CGEventFlags) -> String {
+    var parts: [String] = []
+    if flags.contains(.maskControl) { parts.append("⌃") }
+    if flags.contains(.maskAlternate) { parts.append("⌥") }
+    if flags.contains(.maskShift) { parts.append("⇧") }
+    if flags.contains(.maskCommand) { parts.append("⌘") }
+    let map: [Int64: String] = [
+        49: "SPACE", 36: "RETURN", 48: "TAB", 51: "DELETE", 53: "ESC",
+        122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6", 98: "F7",
+        100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12", 105: "F13",
+        107: "F14", 113: "F15", 106: "F16", 64: "F17", 79: "F18", 80: "F19",
+        176: "MIC", 60: "R-SHIFT",
+        0: "A", 1: "S", 2: "D", 3: "F", 4: "H", 5: "G", 6: "Z", 7: "X",
+        8: "C", 9: "V", 11: "B", 12: "Q", 13: "W", 14: "E", 15: "R",
+        16: "Y", 17: "T", 31: "O", 32: "U", 34: "I", 35: "P", 37: "L",
+        38: "J", 40: "K", 45: "N", 46: "M", 18: "1", 19: "2", 20: "3",
+        21: "4", 23: "5", 22: "6", 26: "7", 28: "8", 25: "9", 29: "0"
+    ]
+    parts.append(map[code] ?? "KEY \(code)")
+    return parts.joined(separator: " ")
+}
+
+// MARK: - App State (persisted)
+class TypoFlowState: ObservableObject {
+    static let shared = TypoFlowState()
+    private let d = UserDefaults.standard
+
+    @Published var isNuPhyConnected = false
+    @Published var detectedKeyboardName = "Built-in Keyboard"
+
+    @Published var nuphyKeyCode: Int64 { didSet { d.set(nuphyKeyCode, forKey: "nuphyKey") } }
+    @Published var nuphyFlagsRaw: UInt64 { didSet { d.set(nuphyFlagsRaw, forKey: "nuphyFlags") } }
+    @Published var macKeyCode: Int64 { didSet { d.set(macKeyCode, forKey: "macKey") } }
+    @Published var macFlagsRaw: UInt64 { didSet { d.set(macFlagsRaw, forKey: "macFlags") } }
+
+    @Published var doubleTapRightShiftEnabled: Bool { didSet { d.set(doubleTapRightShiftEnabled, forKey: "dblShift") } }
+    @Published var showFloatingPill: Bool { didSet { d.set(showFloatingPill, forKey: "showPill2") } }
+    @Published var profileMode: ProfileMode { didSet { d.set(profileMode.rawValue, forKey: "profileMode") } }
+
+    /// Which hotkey profile is live: follow the connected keyboard, or pin one manually
+    enum ProfileMode: Int, CaseIterable { case auto, external, builtIn }
+    @Published var playSounds: Bool { didSet { d.set(playSounds, forKey: "sounds") } }
+    @Published var appearance: AppearanceMode { didSet { d.set(appearance.rawValue, forKey: "appearance") } }
+
+    enum AppearanceMode: Int, CaseIterable { case auto, light, dark }
+
+    // Hotkey recording: listen -> pending -> Save / Cancel
+    @Published var isRecordingFor: RecordingTarget? = nil
+    @Published var pendingTarget: RecordingTarget? = nil
+    @Published var pendingKeyCode: Int64 = 0
+    @Published var pendingFlagsRaw: UInt64 = 0
+
+    @Published var isFlashingSuccess = false
+    @Published var lastLatencyMs: Double = 0
+    @Published var accessibilityGranted = false
+
+    enum RecordingTarget { case nuphy, mac }
+
+    init() {
+        nuphyKeyCode = d.object(forKey: "nuphyKey") as? Int64 ?? 107
+        nuphyFlagsRaw = d.object(forKey: "nuphyFlags") as? UInt64 ?? 0
+        macKeyCode = d.object(forKey: "macKey") as? Int64 ?? 49
+        macFlagsRaw = d.object(forKey: "macFlags") as? UInt64 ?? CGEventFlags.maskAlternate.rawValue
+        doubleTapRightShiftEnabled = d.object(forKey: "dblShift") as? Bool ?? true
+        // New key so existing installs start with the quieter menu-bar-only status
+        showFloatingPill = d.object(forKey: "showPill2") as? Bool ?? false
+        if let saved = d.object(forKey: "profileMode") as? Int, let mode = ProfileMode(rawValue: saved) {
+            profileMode = mode
+        } else {
+            // Migrate the old auto-switch toggle: off meant "always use the built-in profile"
+            profileMode = (d.object(forKey: "autoSwitch") as? Bool ?? true) ? .auto : .builtIn
+        }
+        playSounds = d.object(forKey: "sounds") as? Bool ?? true
+        appearance = AppearanceMode(rawValue: d.integer(forKey: "appearance")) ?? .auto
+    }
+
+    var usingExternalProfile: Bool {
+        switch profileMode {
+        case .auto: return isNuPhyConnected
+        case .external: return true
+        case .builtIn: return false
+        }
+    }
+
+    var activeHotkeyDisplay: String {
+        usingExternalProfile
+            ? keyCodeToString(nuphyKeyCode, flags: CGEventFlags(rawValue: nuphyFlagsRaw))
+            : keyCodeToString(macKeyCode, flags: CGEventFlags(rawValue: macFlagsRaw))
+    }
+
+    func startRecording(_ t: RecordingTarget) {
+        pendingTarget = nil
+        isRecordingFor = t
+    }
+
+    func capture(keyCode: Int64, flags: CGEventFlags) {
+        guard let t = isRecordingFor else { return }
+        pendingTarget = t
+        pendingKeyCode = keyCode
+        pendingFlagsRaw = flags.rawValue
+        isRecordingFor = nil
+    }
+
+    func savePending() {
+        guard let t = pendingTarget else { return }
+        if t == .nuphy { nuphyKeyCode = pendingKeyCode; nuphyFlagsRaw = pendingFlagsRaw }
+        else { macKeyCode = pendingKeyCode; macFlagsRaw = pendingFlagsRaw }
+        pendingTarget = nil
+        if playSounds { NSSound(named: "Glass")?.play() }
+    }
+
+    func cancelRecording() {
+        isRecordingFor = nil
+        pendingTarget = nil
+    }
+}
+
+// MARK: - Hardware Keyboard Detector
+class HardwareKeyboardMonitor {
+    private var timer: Timer?
+
+    func startMonitoring() {
+        check()
+        timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in self?.check() }
+    }
+
+    func check() {
+        let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+        let matching: [String: Any] = [
+            kIOHIDDeviceUsagePageKey as String: kHIDPage_GenericDesktop,
+            kIOHIDDeviceUsageKey as String: kHIDUsage_GD_Keyboard
+        ]
+        IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
+        IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        defer { IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone)) }
+
+        var external: String? = nil
+        if let devices = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> {
+            for device in devices {
+                guard let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String else { continue }
+                let l = name.lowercased()
+                if l.contains("nuphy") || l.contains("air75") || l.contains("halo") { external = name; break }
+                if !l.contains("internal") && !l.contains("apple") && !l.contains("spi")
+                    && !l.contains("headset") && !l.contains("audio") && !l.contains("mouse") {
+                    external = name
+                }
+            }
+        }
+
+        DispatchQueue.main.async {
+            let s = TypoFlowState.shared
+            let was = s.isNuPhyConnected
+            s.isNuPhyConnected = external != nil
+            s.detectedKeyboardName = external ?? "Built-in Keyboard"
+            if was != s.isNuPhyConnected && s.playSounds { NSSound(named: "Pop")?.play() }
+        }
+    }
+}
+
+// MARK: - Neumorphic Primitives
+
+/// Soft extruded (raised) or debossed (inset) surface in any shape
+struct NeuSurface<S: Shape>: View {
+    var shape: S
+    var inset: Bool = false
+    var depth: CGFloat = 5
+    var fill: AnyShapeStyle = AnyShapeStyle(Color.nmBase)
+    var flow: [Color]? = nil   // when set, colours slowly flow across the surface
+
+    private var surface: some View {
+        shape.fill(fill).overlay {
+            if let flow { FlowingGradient(colors: flow).clipShape(shape) }
+        }
+    }
+
+    var body: some View {
+        if inset {
+            surface
+                .overlay(shape.stroke(Color.nmShade, lineWidth: depth)
+                    .blur(radius: depth * 0.8).offset(x: depth * 0.4, y: depth * 0.4).mask(shape))
+                .overlay(shape.stroke(Color.nmLight, lineWidth: depth)
+                    .blur(radius: depth * 0.8).offset(x: -depth * 0.4, y: -depth * 0.4).mask(shape))
+        } else {
+            surface
+                .shadow(color: .nmShade, radius: depth * 1.4, x: depth, y: depth)
+                .shadow(color: .nmLight, radius: depth * 1.4, x: -depth, y: -depth)
+        }
+    }
+}
+
+/// Status dot: colored when on, faint when off
+struct StatusDot: View {
+    var on: Bool = true
+    var color: Color = Pastel.bubblegum.ink
+    var body: some View {
+        Circle()
+            .fill(on ? color : Color.nmMuted.opacity(0.3))
+            .frame(width: 6, height: 6)
+            .shadow(color: on ? color.opacity(0.45) : .clear, radius: 3)
+    }
+}
+
+// MARK: - Logo
+/// Text cursor (I-beam) with a small sparkle: a typo being fixed. Drawn in a unit square.
+struct LogoGlyph: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        let w = r.width, h = r.height
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * w, y: r.minY + y * h) }
+        // I-beam: stem plus top and bottom caps
+        p.move(to: pt(0.40, 0.24)); p.addLine(to: pt(0.40, 0.76))
+        p.move(to: pt(0.29, 0.24)); p.addQuadCurve(to: pt(0.40, 0.30), control: pt(0.38, 0.24))
+        p.move(to: pt(0.51, 0.24)); p.addQuadCurve(to: pt(0.40, 0.30), control: pt(0.42, 0.24))
+        p.move(to: pt(0.29, 0.76)); p.addQuadCurve(to: pt(0.40, 0.70), control: pt(0.38, 0.76))
+        p.move(to: pt(0.51, 0.76)); p.addQuadCurve(to: pt(0.40, 0.70), control: pt(0.42, 0.76))
+        return p.strokedPath(StrokeStyle(lineWidth: w * 0.075, lineCap: .round, lineJoin: .round))
+    }
+}
+
+/// Four-point sparkle, filled
+struct Sparkle: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        let c = CGPoint(x: r.midX, y: r.midY), R = r.width / 2, k = R * 0.22
+        p.move(to: CGPoint(x: c.x, y: c.y - R))
+        p.addQuadCurve(to: CGPoint(x: c.x + R, y: c.y), control: CGPoint(x: c.x + k, y: c.y - k))
+        p.addQuadCurve(to: CGPoint(x: c.x, y: c.y + R), control: CGPoint(x: c.x + k, y: c.y + k))
+        p.addQuadCurve(to: CGPoint(x: c.x - R, y: c.y), control: CGPoint(x: c.x - k, y: c.y + k))
+        p.addQuadCurve(to: CGPoint(x: c.x, y: c.y - R), control: CGPoint(x: c.x - k, y: c.y - k))
+        return p
+    }
+}
+
+/// Cursor + sparkle in a single colour (used alone for the menu bar template icon)
+struct LogoMark: View {
+    var color: Color = .white
+    var size: CGFloat
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            LogoGlyph().fill(color)
+            Sparkle().fill(color)
+                .frame(width: size * 0.30, height: size * 0.30)
+                .offset(x: size * 0.56, y: size * 0.16)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+/// App logo: candy squircle with the white cursor + sparkle
+struct TyposLogo: View {
+    var size: CGFloat = 22
+    var animated: Bool = false
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
+        shape
+            .fill(LinearGradient(colors: Pastel.logoColors,
+                                 startPoint: .topLeading, endPoint: .bottomTrailing))
+            .overlay { if animated { FlowingGradient(colors: Pastel.logoColors, duration: 5).clipShape(shape) } }
+            .overlay(LogoMark(color: .white, size: size * 0.9))
+            .frame(width: size, height: size)
+            .shadow(color: Pastel.bubblegum.ink.opacity(0.3), radius: size * 0.15, y: size * 0.06)
+    }
+}
+
+enum LogoImages {
+    /// Monochrome template icon for the menu bar (macOS tints it for light/dark menu bars)
+    @MainActor static func menuBarTemplate() -> NSImage {
+        let r = ImageRenderer(content: LogoMark(color: .black, size: 18))
+        r.scale = 2
+        let img = r.nsImage ?? NSImage()
+        img.isTemplate = true
+        return img
+    }
+
+    /// 1024px app icon PNG on Apple's icon grid (used by build.sh to make AppIcon.icns)
+    @MainActor static func writeAppIconPNG(to path: String) -> Bool {
+        let r = ImageRenderer(content: TyposLogo(size: 824).padding(100))
+        r.scale = 1
+        guard let img = r.nsImage, let tiff = img.tiffRepresentation,
+              let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return false }
+        return (try? png.write(to: URL(fileURLWithPath: path))) != nil
+    }
+
+    /// Full-colour logo, e.g. for the menu bar "fixed" flash and the app icon
+    @MainActor static func color(size: CGFloat) -> NSImage {
+        let r = ImageRenderer(content: TyposLogo(size: size).padding(size * 0.08))
+        r.scale = 2
+        return r.nsImage ?? NSImage()
+    }
+}
+
+/// Raised key chip showing a hotkey, optionally tinted with a pastel pair
+struct KeyChip: View {
+    var label: String
+    var pastel: Pastel? = nil
+    var body: some View {
+        Text(label)
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .foregroundColor(pastel?.ink ?? .nmInk)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(minWidth: 44)
+            .background(NeuSurface(shape: RoundedRectangle(cornerRadius: 8, style: .continuous),
+                                   depth: 3, fill: pastel?.gradient ?? AnyShapeStyle(Color.nmBase),
+                                   flow: pastel?.flowColors))
+    }
+}
+
+/// Raised button that sinks into the surface when pressed; pastel pair for primary actions
+struct NeuButtonStyle: ButtonStyle {
+    var pastel: Pastel? = nil
+    var tint: Color = .nmInk
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.nm(12, .medium))
+            .foregroundColor(pastel?.ink ?? tint)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(NeuSurface(shape: Capsule(), inset: configuration.isPressed, depth: 3,
+                                   fill: pastel?.gradient ?? AnyShapeStyle(Color.nmBase),
+                                   flow: pastel?.flowColors))
+            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+    }
+}
+
+/// Inset track with a raised knob
+struct NeuToggleStyle: ToggleStyle {
+    var pastel: Pastel = .sky
+    func makeBody(configuration: Configuration) -> some View {
+        HStack {
+            configuration.label
+                .font(.nm(13))
+                .foregroundColor(.nmInk)
+            Spacer()
+            ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+                NeuSurface(shape: Capsule(), inset: true, depth: 3,
+                           fill: configuration.isOn ? pastel.gradient : AnyShapeStyle(Color.nmBase),
+                           flow: configuration.isOn ? pastel.flowColors : nil)
+                    .frame(width: 42, height: 22)
+                Circle()
+                    .fill(configuration.isOn ? pastel.ink.opacity(0.7) : Color.nmRaised)
+                    .frame(width: 16, height: 16)
+                    .shadow(color: .nmShade, radius: 2, x: 1.5, y: 1.5)
+                    .shadow(color: .nmLight, radius: 2, x: -1, y: -1)
+                    .padding(3)
+            }
+            .animation(.spring(response: 0.25, dampingFraction: 0.8), value: configuration.isOn)
+            .onTapGesture { configuration.isOn.toggle() }
+        }
+    }
+}
+
+/// Raised card container
+struct NeuCard<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        content
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(NeuSurface(shape: RoundedRectangle(cornerRadius: 18, style: .continuous), depth: 6))
+    }
+}
+
+/// Small inset track with a raised chip on the selected option
+struct NeuSegmented<T: Hashable>: View {
+    let options: [(T, String)]
+    @Binding var selection: T
+    @Namespace private var ns
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(options, id: \.0) { value, label in
+                Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { selection = value } } label: {
+                    Text(label)
+                        .font(.nm(11, selection == value ? .semibold : .regular))
+                        .foregroundColor(selection == value ? .nmInk : .nmMuted)
+                        .padding(.horizontal, 12).padding(.vertical, 5)
+                        .background {
+                            if selection == value {
+                                NeuSurface(shape: Capsule(), depth: 2, fill: AnyShapeStyle(Color.nmRaised))
+                                    .matchedGeometryEffect(id: "chip", in: ns)
+                            }
+                        }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(NeuSurface(shape: Capsule(), inset: true, depth: 3))
+    }
+}
+
+/// Quiet section caption
+struct Caption: View {
+    var text: String
+    var body: some View {
+        Text(text)
+            .font(.nm(11, .medium))
+            .foregroundColor(.nmMuted)
+    }
+}
+
+// MARK: - Floating Top Pill (optional; the menu bar icon is the default status)
+
+/// Small glowing orb whose candy colours slowly swirl; brightens on a successful fix
+struct CandyOrb: View {
+    var angle: Double
+    var active: Bool
+    var body: some View {
+        Circle()
+            .fill(AngularGradient(colors: Pastel.logoColors + [Pastel.logoColors[0]],
+                                  center: .center, angle: .degrees(angle * 2)))
+            .frame(width: 10, height: 10)
+            .shadow(color: Pastel.bubblegum.ink.opacity(active ? 0.8 : 0.35), radius: active ? 6 : 3)
+            .scaleEffect(active ? 1.2 : 1)
+    }
+}
+
+/// Frosted-glass capsule with a slowly rotating candy ring around its edge
+struct FloatingPillView: View {
+    @ObservedObject var state = TypoFlowState.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var onOpenSettings: () -> Void
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { ctx in
+            let angle = reduceMotion ? 0 : (ctx.date.timeIntervalSinceReferenceDate * 24).truncatingRemainder(dividingBy: 360)
+            let ok = state.isFlashingSuccess
+            HStack(spacing: 9) {
+                CandyOrb(angle: angle, active: ok)
+                Group {
+                    if ok {
+                        Text(String(format: "Fixed · %.1f ms", state.lastLatencyMs))
+                            .foregroundStyle(LinearGradient(colors: [Pastel.sky.ink, Pastel.bubblegum.ink],
+                                                            startPoint: .leading, endPoint: .trailing))
+                    } else {
+                        Text("typ0s").foregroundStyle(Color.nmInk.opacity(0.75))
+                    }
+                }
+                .font(.nm(11, .semibold))
+                .frame(width: 90, alignment: .leading)
+                Button(action: onOpenSettings) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(.nmMuted)
+                        .frame(width: 20, height: 20)
+                        .background(Circle().fill(Color.nmRaised.opacity(0.7)))
+                }
+                .buttonStyle(.plain)
+                .help("Open typ0s")
+            }
+            .padding(.leading, 13).padding(.trailing, 6).padding(.vertical, 6)
+            .background(
+                ZStack {
+                    Capsule().fill(.ultraThinMaterial)
+                    Capsule().fill(Color.nmBase.opacity(0.55))
+                    Capsule().fill(LinearGradient(colors: [Pastel.sky.fill, Pastel.bubblegum.fill, Pastel.lemon.fill],
+                                                  startPoint: .leading, endPoint: .trailing))
+                        .opacity(ok ? 0.85 : 0.25)
+                }
+            )
+            .overlay(
+                Capsule().strokeBorder(
+                    AngularGradient(colors: Pastel.logoColors + [Pastel.logoColors[0]],
+                                    center: .center, angle: .degrees(angle)),
+                    lineWidth: 1.2)
+                .opacity(ok ? 0.9 : 0.45)
+            )
+            .shadow(color: Pastel.bubblegum.ink.opacity(0.18), radius: 6, y: 2)
+            .padding(8) // room for the glow inside the borderless panel
+            .animation(.spring(response: 0.35, dampingFraction: 0.7), value: ok)
+        }
+    }
+}
+
+// MARK: - Hotkey Row
+struct HotkeyRow: View {
+    @ObservedObject var state = TypoFlowState.shared
+    let target: TypoFlowState.RecordingTarget
+    let title: String
+    let subtitle: String
+    let pastel: Pastel
+    let active: Bool
+    let currentLabel: String
+
+    var listening: Bool { state.isRecordingFor == target }
+    var pending: Bool { state.pendingTarget == target }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            StatusDot(on: active, color: pastel.ink)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.nm(14, .semibold)).foregroundColor(.nmInk)
+                Text(subtitle).font(.nm(11)).foregroundColor(.nmMuted).lineLimit(1)
+            }
+            Spacer()
+            controls
+        }
+    }
+
+    @ViewBuilder var controls: some View {
+        if listening {
+            HStack(spacing: 10) {
+                Text("Press a key…").font(.nm(12)).foregroundColor(pastel.ink)
+                Button("Cancel") { state.cancelRecording() }
+                    .buttonStyle(NeuButtonStyle(tint: .nmMuted))
+            }
+        } else if pending {
+            HStack(spacing: 10) {
+                KeyChip(label: keyCodeToString(state.pendingKeyCode, flags: CGEventFlags(rawValue: state.pendingFlagsRaw)),
+                        pastel: pastel)
+                Button("Save") { state.savePending() }
+                    .buttonStyle(NeuButtonStyle(pastel: .bubblegum))
+                    .keyboardShortcut(.defaultAction)
+                Button("Cancel") { state.cancelRecording() }
+                    .buttonStyle(NeuButtonStyle(tint: .nmMuted))
+            }
+        } else {
+            HStack(spacing: 10) {
+                KeyChip(label: currentLabel, pastel: active ? pastel : nil)
+                Button("Change") { state.startRecording(target) }
+                    .buttonStyle(NeuButtonStyle())
+            }
+        }
+    }
+}
+
+// MARK: - Tabs
+enum SettingsTab: String, CaseIterable { case keys = "Hotkeys", dictionary = "Dictionary", test = "Test" }
+
+struct HotkeysTab: View {
+    @ObservedObject var state = TypoFlowState.shared
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            NeuCard {
+                VStack(spacing: 16) {
+                    HStack {
+                        Text("Use hotkey from").font(.nm(13)).foregroundColor(.nmInk)
+                        Spacer()
+                        NeuSegmented(options: [(.auto, "Auto"), (.external, "External"), (.builtIn, "Built-in")],
+                                     selection: $state.profileMode)
+                    }
+                    HotkeyRow(target: .nuphy,
+                              title: "External",
+                              subtitle: state.isNuPhyConnected ? state.detectedKeyboardName : "Not connected",
+                              pastel: .sky,
+                              active: state.usingExternalProfile,
+                              currentLabel: keyCodeToString(state.nuphyKeyCode, flags: CGEventFlags(rawValue: state.nuphyFlagsRaw)))
+                    HotkeyRow(target: .mac,
+                              title: "Built-in",
+                              subtitle: "MacBook keyboard",
+                              pastel: .bubblegum,
+                              active: !state.usingExternalProfile,
+                              currentLabel: keyCodeToString(state.macKeyCode, flags: CGEventFlags(rawValue: state.macFlagsRaw)))
+                }
+            }
+            NeuCard {
+                VStack(spacing: 14) {
+                    Toggle("Double-tap Right Shift", isOn: $state.doubleTapRightShiftEnabled)
+                    Toggle("Floating pill (menu bar icon otherwise)", isOn: $state.showFloatingPill)
+                    Toggle("Sounds", isOn: $state.playSounds)
+                    HStack {
+                        Text("Appearance").font(.nm(13)).foregroundColor(.nmInk)
+                        Spacer()
+                        NeuSegmented(options: [(.auto, "Auto"), (.light, "Light"), (.dark, "Dark")],
+                                     selection: $state.appearance)
+                    }
+                }
+                .toggleStyle(NeuToggleStyle())
+            }
+        }
+    }
+}
+
+struct DictionaryTab: View {
+    @ObservedObject var store = UserDictionaryStore.shared
+    @State private var typo = ""
+    @State private var word = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Caption(text: "typ0s learns on its own: a typo you make twice is memorised, and names it doesn't know are protected after \(UserDictionaryStore.learnThreshold) uses. Press ⌘Z right after a fix and nothing from it is learned.")
+            HStack(spacing: 10) {
+                field("Typo (optional)", $typo)
+                Image(systemName: "arrow.right").font(.system(size: 10, weight: .semibold)).foregroundColor(Pastel.bubblegum.ink)
+                field("Word", $word)
+                Button("Add") {
+                    store.addRule(typo: typo, replacement: word)
+                    typo = ""; word = ""
+                }
+                .buttonStyle(NeuButtonStyle(pastel: .sky))
+                .disabled(word.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(store.customRules) { rule in
+                        HStack(spacing: 8) {
+                            if rule.typo.isEmpty {
+                                Text(rule.replacement).font(.nm(13, .medium)).foregroundColor(.nmInk)
+                                let tag = rule.learned ? Pastel.lemon : Pastel.bubblegum
+                                Text(rule.learned ? "learned" : "protected")
+                                    .font(.nm(10, .medium)).foregroundColor(tag.ink)
+                                    .padding(.horizontal, 7).padding(.vertical, 2)
+                                    .background(Capsule().fill(tag.gradient))
+                            } else {
+                                Text(rule.typo).font(.nm(13)).foregroundColor(.nmMuted).strikethrough()
+                                Image(systemName: "arrow.right").font(.system(size: 9)).foregroundColor(Pastel.bubblegum.ink)
+                                Text(rule.replacement).font(.nm(13, .medium)).foregroundColor(.nmInk)
+                                if rule.learned {
+                                    Text("learned")
+                                        .font(.nm(10, .medium)).foregroundColor(Pastel.lemon.ink)
+                                        .padding(.horizontal, 7).padding(.vertical, 2)
+                                        .background(Capsule().fill(Pastel.lemon.gradient))
+                                }
+                            }
+                            Spacer()
+                            Button { store.removeRule(id: rule.id) } label: {
+                                Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)).foregroundColor(.nmMuted)
+                            }.buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 4)
+                    }
+                }
+                .padding(.horizontal, 12)
+            }
+            .background(NeuSurface(shape: RoundedRectangle(cornerRadius: 16, style: .continuous), inset: true, depth: 5))
+            .frame(maxHeight: .infinity)
+        }
+    }
+
+    func field(_ placeholder: String, _ text: Binding<String>) -> some View {
+        TextField(placeholder, text: text)
+            .textFieldStyle(.plain)
+            .font(.nm(13))
+            .foregroundColor(.nmInk)
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(NeuSurface(shape: Capsule(), inset: true, depth: 3))
+    }
+}
+
+struct TestTab: View {
+    @ObservedObject var state = TypoFlowState.shared
+    // Everyday fast-typing slips; each one is fully corrected by the current engine
+    static let samples = [
+        "i think the tests were flaky agian, can you rerun the build tomorow morning",
+        "the new keybaord feels great but my fingers keep hitting the wrong keys whne i type fast",
+        "please recieve the package by friday and seperate the invoices untill the end of the month",
+        "my coffee went cold becuase i was writing for an hour straight",
+        "the garden looks beautiful after teh rain, everything smells fresh",
+        "we definately need a better plan for the launch, maybe a shorter checklist"
+    ]
+    // Longer everyday paragraphs with natural fast-typing slips (not hand-picked to pass)
+    static let longSamples = [
+        "so the plan for saturday is pretty simple. we meet at the station around ten, grab coffee at that small place on the corner, adn then walk up to the park before it gets too hot. if it rains we can jsut go to the museum instead, i checked and its free on weekends. please bring a jacket becuase the weather app keeps changing its mind. also, does anyone know if the bakery is still open on sundays? i want to buy bread for my mom on the way back. let me knwo by friday night so i can book the table.",
+        "i have been tryign to read more books this year but honestly it is harder than i thought. every evening i sit down wiht a book and after five minutes my phone lights up and taht is the end of it. last week i started leaving the phone in the kitchen and it actually worked, i finished two books in four days. the first one was a slow mystery set in a small fishing town, the second was a memoir abotu a chef who opened a restaurant in tokyo. i think i liked the second one more, mostly beacuse the food descriptions made me so hungry.",
+        "quick update on the website. the new homepage is almost done, we jsut need the final photos from the design team and a shorter headline. the contact form is working now but the confirmation email sometimes goes to spam, so i will look into that tomorow. performance is much better than before, the page loads in under two seconds on a normal connection. one thing i am not sure abotu is the colour of the main button, it looks great on my laptop but kind of dull on my phone. coudl someone check it on a different screen and tell me waht you think?",
+        "yesterday i finally cleaned my desk adn found so many random things. three pens that dont work, a charger for a phone i sold two years ago, a birthday card i forgot to send, and a tiny plant that somehow survived wihtout any water. i threw most of it away and now the desk feels huge. i also moved the lamp to the left side so the light doesnt hit the screen directly, which makes a big difference at night. the next step is the drawer, but i think taht can wait untill next weekend.",
+        "my grandmother called this morning to ask if i was eating enough vegetables, which is her favourite question. we talked for almost an hour abotu her garden, the neighbours, and the new recipe she wants to try for the holidays. she is planning to make a huge pot of soup and freeze half of it so she doesnt have to cook every day. i promised to visit her next month and help her fix the gate taht keeps swinging open in the wind. she said she will make my favourite cake if i come early enough in the afternoon."
+    ]
+    // Public-domain classics. The text is clean; realistic slips are injected each time one loads.
+    static let classicSamples: [(text: String, source: String)] = [
+        ("Begin the morning by saying to thyself, I shall meet with the busy-body, the ungrateful, arrogant, deceitful, envious, unsocial. All these things happen to them by reason of their ignorance of what is good and evil.",
+         "Marcus Aurelius, Meditations (tr. George Long)"),
+        ("I went to the woods because I wished to live deliberately, to front only the essential facts of life, and see if I could not learn what it had to teach, and not, when I came to die, discover that I had not lived.",
+         "Henry David Thoreau, Walden"),
+        ("Trust thyself: every heart vibrates to that iron string. Accept the place the divine providence has found for you, the society of your contemporaries, the connection of events.",
+         "Ralph Waldo Emerson, Self-Reliance"),
+        ("Hold every hour in your grasp. Lay hold of to-day's task, and you will not need to depend so much upon to-morrow's. While we are postponing, life speeds by.",
+         "Seneca, Moral Letters (tr. Richard Gummere)"),
+        ("Men are disturbed not by things, but by the views which they take of things.",
+         "Epictetus, Enchiridion (tr. Thomas Higginson)")
+    ]
+
+    enum SampleSet: Hashable { case short, long, classic }
+
+    /// Words shown with a fading highlight right after a fix
+    struct Reveal {
+        let words: [(text: String, changed: Bool)]
+        let start: Date
+    }
+
+    @State private var set: SampleSet = .short
+    @State private var index = 0
+    @State private var text = TestTab.samples[0]
+    @State private var ms: Double = 0
+    @State private var reveal: Reveal? = nil
+    @State private var classicClean: String? = nil      // clean original, for scoring
+    @State private var injected: Set<Int> = []          // word positions that got a slip
+    @State private var score: String? = nil
+
+    private var setCount: Int {
+        switch set {
+        case .short: return TestTab.samples.count
+        case .long: return TestTab.longSamples.count
+        case .classic: return TestTab.classicSamples.count
+        }
+    }
+
+    private var caption: String {
+        if set == .classic { return TestTab.classicSamples[index].source }
+        return "Example \(index + 1) of \(setCount)"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Caption(text: caption).lineLimit(1)
+                Spacer()
+                NeuSegmented(options: [(.short, "Short"), (.long, "Long"), (.classic, "Classic")], selection: $set)
+            }
+            .onChange(of: set) { load(0) }
+
+            ZStack(alignment: .topLeading) {
+                if let r = reveal {
+                    RevealText(reveal: r)
+                        .padding(.horizontal, 5) // match TextEditor's inner inset so words don't jump
+                        .contentShape(Rectangle())
+                        .onTapGesture { reveal = nil }
+                } else {
+                    TextEditor(text: $text)
+                        .font(.nm(14))
+                        .foregroundColor(.nmInk)
+                        .scrollContentBackground(.hidden)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(NeuSurface(shape: RoundedRectangle(cornerRadius: 16, style: .continuous), inset: true, depth: 5))
+
+            HStack(spacing: 12) {
+                Button("Fix", action: fix)
+                    .buttonStyle(NeuButtonStyle(pastel: .bubblegum))
+                Button(set == .classic ? "New slips" : "Next example") {
+                    load(set == .classic ? index : (index + 1) % setCount)
+                }
+                .buttonStyle(NeuButtonStyle(tint: .nmMuted))
+                if set == .classic {
+                    Button("Next text") { load((index + 1) % setCount) }
+                        .buttonStyle(NeuButtonStyle(tint: .nmMuted))
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(ms > 0 ? String(format: "%.2f ms", ms) : "— ms")
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundColor(ms > 0 ? Pastel.sky.ink : .nmMuted)
+                    if let score {
+                        Text(score).font(.nm(10, .medium)).foregroundColor(Pastel.bubblegum.ink)
+                    }
+                }
+            }
+        }
+    }
+
+    private func load(_ i: Int) {
+        index = i
+        ms = 0; score = nil; reveal = nil
+        switch set {
+        case .short: text = TestTab.samples[i]; classicClean = nil
+        case .long: text = TestTab.longSamples[i]; classicClean = nil
+        case .classic:
+            let clean = TestTab.classicSamples[i].text
+            let slipped = TypoInjector.inject(into: clean)
+            text = slipped.text
+            injected = slipped.positions
+            classicClean = clean
+        }
+    }
+
+    private func fix() {
+        let before = text
+        let t0 = CFAbsoluteTimeGetCurrent()
+        let after = FastTypoEngine().correctText(before)
+        ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+        text = after
+        if let clean = classicClean { score = TypoInjector.score(clean: clean, fixed: after, slips: injected) }
+
+        let words = WordDiff.mark(old: before, new: after)
+        guard words.contains(where: { $0.changed }) else { return }
+        let r = Reveal(words: words, start: Date())
+        reveal = r
+        DispatchQueue.main.asyncAfter(deadline: .now() + RevealText.duration) {
+            if reveal?.start == r.start { withAnimation(.easeOut(duration: 0.2)) { reveal = nil } }
+        }
+    }
+}
+
+/// Fixed text where each replaced word lights up in candy colours, one after another, then settles
+struct RevealText: View {
+    static let duration: Double = 2.0
+    let reveal: TestTab.Reveal
+
+    var body: some View {
+        TimelineView(.animation) { ctx in
+            Text(attributed(elapsed: ctx.date.timeIntervalSince(reveal.start)))
+                .font(.nm(14))
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private func attributed(elapsed: Double) -> AttributedString {
+        var out = AttributedString()
+        var order = 0
+        let tints = [Pastel.bubblegum, Pastel.sky, Pastel.lemon]
+        for (i, w) in reveal.words.enumerated() {
+            var word = AttributedString(w.text)
+            word.foregroundColor = .nmInk
+            if w.changed {
+                // Stagger each word, then fade its highlight out
+                let local = max(0, elapsed - Double(order) * 0.06)
+                let tint = tints[order % tints.count]
+                let strength = local < 0.15 ? local / 0.15 : max(0, 1 - (local - 0.6) / 1.0)
+                if strength > 0 {
+                    word.backgroundColor = tint.fill.opacity(min(1, strength))
+                    if strength > 0.4 { word.foregroundColor = tint.ink }
+                }
+                order += 1
+            }
+            out += word
+            if i < reveal.words.count - 1 { out += AttributedString(" ") }
+        }
+        return out
+    }
+}
+
+/// Marks which words in the new text are new or changed (longest-common-subsequence on words)
+enum WordDiff {
+    static func mark(old: String, new: String) -> [(text: String, changed: Bool)] {
+        let a = old.components(separatedBy: " ")
+        let b = new.components(separatedBy: " ")
+        let n = a.count, m = b.count
+        var dp = Array(repeating: Array(repeating: 0, count: m + 1), count: n + 1)
+        for i in stride(from: n - 1, through: 0, by: -1) {
+            for j in stride(from: m - 1, through: 0, by: -1) {
+                dp[i][j] = a[i] == b[j] ? dp[i + 1][j + 1] + 1 : max(dp[i + 1][j], dp[i][j + 1])
+            }
+        }
+        var kept = Set<Int>()
+        var i = 0, j = 0
+        while i < n && j < m {
+            if a[i] == b[j] { kept.insert(j); i += 1; j += 1 }
+            else if dp[i + 1][j] >= dp[i][j + 1] { i += 1 }
+            else { j += 1 }
+        }
+        return b.enumerated().map { ($0.element, !kept.contains($0.offset)) }
+    }
+}
+
+/// Adds realistic fast-typing slips to clean text, and scores how well a fix recovered it
+enum TypoInjector {
+    private static let engine = FastTypoEngine()
+    private static let letters = Array("abcdefghijklmnopqrstuvwxyz")
+
+    private static func neighbours(of c: Character) -> [Character] {
+        letters.filter { $0 != c && engine.qwertyKeyDistance(c, $0) < 0.5 }
+    }
+
+    /// Splits a token into leading punctuation, letters, trailing punctuation
+    private static func split(_ token: String) -> (String, String, String) {
+        var core = Substring(token), pre = "", suf = ""
+        while let f = core.first, !f.isLetter { pre.append(f); core = core.dropFirst() }
+        while let l = core.last, !l.isLetter { suf.insert(l, at: suf.startIndex); core = core.dropLast() }
+        return (pre, String(core), suf)
+    }
+
+    static func inject(into clean: String) -> (text: String, positions: Set<Int>) {
+        var words = clean.components(separatedBy: " ")
+        let eligible = words.indices.filter {
+            let core = split(words[$0]).1
+            return core.count >= 4 && core.allSatisfy { $0.isLetter }
+        }
+        let count = min(eligible.count, max(3, eligible.count / 5))
+        let picked = Set(eligible.shuffled().prefix(count))
+        for i in picked {
+            let (pre, core, suf) = split(words[i])
+            words[i] = pre + slip(core) + suf
+        }
+        return (words.joined(separator: " "), picked)
+    }
+
+    /// One physical slip: neighbour key, swapped pair, switch chatter, dropped key, or key bleed
+    private static func slip(_ word: String) -> String {
+        var c = Array(word)
+        for _ in 0..<6 {
+            var t = c
+            let p = Int.random(in: 1..<t.count - 1)
+            let lower = Character(t[p].lowercased())
+            switch Int.random(in: 0..<5) {
+            case 0: if let n = neighbours(of: lower).randomElement() { t[p] = n }
+            case 1: if t[p] != t[p + 1] { t.swapAt(p, p + 1) }
+            case 2: t.insert(t[p], at: p)
+            case 3: t.remove(at: p)
+            default: if let n = neighbours(of: lower).randomElement() { t.insert(n, at: p + 1) }
+            }
+            if t != c { c = t; break }
+        }
+        return String(c)
+    }
+
+    static func score(clean: String, fixed: String, slips: Set<Int>) -> String {
+        func norm(_ s: String) -> String { s.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "'" } }
+        let a = clean.components(separatedBy: " ").map(norm)
+        let b = fixed.components(separatedBy: " ").map(norm)
+        guard a.count == b.count else { return "Word count changed (a split or join)" }
+        let recovered = slips.filter { a[$0] == b[$0] }.count
+        let wrong = a.indices.filter { !slips.contains($0) && a[$0] != b[$0] }.count
+        return "Recovered \(recovered) of \(slips.count) slips" + (wrong > 0 ? " · \(wrong) wrong change\(wrong == 1 ? "" : "s")" : "")
+    }
+}
+
+// MARK: - Main Window
+struct SettingsDashboardView: View {
+    @ObservedObject var state = TypoFlowState.shared
+    @State private var tab: SettingsTab = .keys
+    @Namespace private var tabNS
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header (sits under the transparent title bar / traffic lights)
+            HStack(alignment: .center, spacing: 10) {
+                TyposLogo(size: 24, animated: true)
+                // Title text with candy colours flowing through it
+                FlowingGradient(colors: [Pastel.sky.ink, Pastel.bubblegum.ink], duration: 5)
+                    .mask(Text("typ0s").font(.nm(20, .semibold)))
+                    .frame(width: 64, height: 26)
+                Spacer()
+                HStack(spacing: 6) {
+                    StatusDot(on: true, color: state.usingExternalProfile ? Pastel.sky.ink : Pastel.bubblegum.ink)
+                    Text(state.detectedKeyboardName)
+                        .font(.nm(11))
+                        .foregroundColor(.nmMuted)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.top, 40)
+            .padding(.horizontal, 28)
+
+            // Segmented selector: inset track, raised active segment
+            HStack(spacing: 0) {
+                ForEach(SettingsTab.allCases, id: \.self) { t in
+                    Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { tab = t } } label: {
+                        Text(t.rawValue)
+                            .font(.nm(12, tab == t ? .semibold : .regular))
+                            .foregroundColor(tab == t ? .nmInk : .nmMuted)
+                            .frame(maxWidth: .infinity).padding(.vertical, 8)
+                            .background {
+                                if tab == t {
+                                    NeuSurface(shape: Capsule(), depth: 3, fill: AnyShapeStyle(Color.nmRaised))
+                                        .matchedGeometryEffect(id: "seg", in: tabNS)
+                                }
+                            }
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(5)
+            .background(NeuSurface(shape: Capsule(), inset: true, depth: 4))
+            .padding(.horizontal, 28).padding(.top, 20)
+
+            if !state.accessibilityGranted {
+                HStack(spacing: 10) {
+                    StatusDot(on: true, color: Pastel.lemon.ink)
+                    Text("Accessibility permission needed for hotkeys.")
+                        .font(.nm(12))
+                        .foregroundColor(.nmInk)
+                    Spacer()
+                    Button("Grant") {
+                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+                    }.buttonStyle(NeuButtonStyle(pastel: .lemon))
+                }
+                .padding(.horizontal, 28).padding(.top, 18)
+            }
+
+            Group {
+                switch tab {
+                case .keys: HotkeysTab()
+                case .dictionary: DictionaryTab()
+                case .test: TestTab()
+                }
+            }
+            .padding(28)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .frame(width: 600, height: 600)
+        .background(PastelBackdrop())
+    }
+}

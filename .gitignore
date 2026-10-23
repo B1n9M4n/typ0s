@@ -1,0 +1,12 @@
+# Build output
+build/
+*.zip
+
+# Old local builds and scripts (not part of the project)
+/Typos
+/TypoFlow
+/TypoFlow.app/
+/start.sh
+/REVIEW.md
+
+.DS_Store
