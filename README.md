@@ -2,7 +2,30 @@
 
 **Type fast. Fix later.** typ0s is a tiny macOS menu bar app that cleans up a messy paragraph in place, with one hotkey.
 
-It was made for freewriting: writing with backspace turned off (for example in [Freewrite](https://freewrite.io)), typing as fast as the ideas come, and fixing the mess afterwards instead of rechecking every word.
+## Why I made this
+
+I freewrite almost every day. Freewriting means you just keep typing: no fixing grammar, no going back, nothing except getting the idea out. I do it in Farza's [Freewrite](https://freewrite.io) app with **backspace turned off**, so there's no way to correct anything while I write.
+
+The problem is that I'm not an accurate typer, especially on my new mechanical keyboard (a NuPhy Air75). I like typing fast because it's fun and the ideas in my head move fast, but every paragraph ends up full of typos: letters swapped, neighbouring keys hit by accident, the space bar landing one letter too early. Sometimes I even hit the language switch by accident and a whole phrase comes out in Thai letters. Since I can't backspace, the result is hard to read afterwards.
+
+I didn't want an AI rewriting my words, and I didn't want to recheck every line by hand. I wanted something that:
+
+- fixes the mechanical slips **after** I finish a paragraph, so I never break the flow while writing
+- guesses from how keyboards actually work, but **doesn't guess** when it isn't sure the word is a real typo
+- learns the typos I keep repeating, instead of me typing them into a dictionary
+- runs entirely on my own Mac
+
+That's typ0s.
+
+### How I use it
+
+1. Open Freewrite (or any editor), turn off backspace, and write as fast as you want.
+2. At the end of a paragraph, press the hotkey (or double-tap Right Shift).
+3. The paragraph is cleaned up in place, and I keep writing.
+
+It works in any app where you type, not just Freewrite.
+
+## What it does
 
 - **Keyboard-aware**: knows which keys sit next to each other, so `teh`, `mornign`, `keybaord`, doubled keys and swapped letters get fixed.
 - **Space slips**: `righ tnow` → `right now`, `th e` → `the`.
