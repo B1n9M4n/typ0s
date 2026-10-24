@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-SOURCES=(Typ0sApp.swift Typ0sUI.swift FastTypoEngine.swift)
+SOURCES=(Typ0sApp.swift Typ0sUI.swift FastTypoEngine.swift WordModel.swift)
 VERSION="0.2.0"
 MIN_MACOS="14.0"
 OUT="build"
@@ -19,6 +19,10 @@ for arch in arm64 x86_64; do
 done
 lipo -create "$OUT/typ0s-arm64" "$OUT/typ0s-x86_64" -o "$APP/Contents/MacOS/typ0s"
 rm "$OUT/typ0s-arm64" "$OUT/typ0s-x86_64"
+
+echo "→ Adding the word lists…"
+mkdir -p "$APP/Contents/Resources/Dictionary"
+cp Dictionary/words.txt Dictionary/bigrams.txt Dictionary/LICENSE.md "$APP/Contents/Resources/Dictionary/"
 
 echo "→ Drawing the app icon…"
 ICONSET="$OUT/AppIcon.iconset"

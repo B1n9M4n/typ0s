@@ -36,6 +36,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupFloatingPillWindow()
         setupMenuBar()
         setupMainMenu()
+        // Load the word lists in the background so the first fix is instant
+        DispatchQueue.global(qos: .utility).async { _ = WordModel.shared }
         checkAccessibilityPermissions()
         setupEventTap()
         keyboardMonitor.startMonitoring()
