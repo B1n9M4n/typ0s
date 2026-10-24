@@ -896,6 +896,8 @@ struct TestTab: View {
                 NeuSegmented(options: [(.short, "Short"), (.long, "Long"), (.classic, "Classic")], selection: $set)
             }
             .onChange(of: set) { load(0) }
+            // Hotkey fixes (⌥T, F14, Right Shift ×2) also show their time here, not just the Fix button
+            .onChange(of: state.lastLatencyMs) { ms = state.lastLatencyMs }
 
             ZStack(alignment: .topLeading) {
                 if let r = reveal {
