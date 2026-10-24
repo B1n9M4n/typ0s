@@ -4,6 +4,12 @@ import Carbon
 import ApplicationServices
 import Combine
 
+/// Lets the first click on a background window go straight to the button under it,
+/// instead of only bringing the window forward (typ0s is a menu bar app, so its window is often in the back)
+class FirstClickHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 class FloatingPillPanel: NSPanel {
     override var canBecomeKey: Bool { return false }
     override var canBecomeMain: Bool { return false }
@@ -108,7 +114,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         pillPanel.isMovableByWindowBackground = true // Drag the pill anywhere
         pillPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         
-        let hostingView = NSHostingView(rootView: FloatingPillView(
+        let hostingView = FirstClickHostingView(rootView: FloatingPillView(
             onOpenSettings: { [weak self] in self?.openSettingsWindow() }
         ))
         hostingView.frame = NSRect(x: 0, y: 0, width: pillWidth, height: pillHeight)
@@ -129,9 +135,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.title = "typ0s"
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
-            window.isMovableByWindowBackground = true
+            window.isMovableByWindowBackground = false   // drag by the top edge; background drags could swallow button clicks
             window.isReleasedWhenClosed = false
-            let host = NSHostingView(rootView: SettingsDashboardView())
+            let host = FirstClickHostingView(rootView: SettingsDashboardView())
             if #available(macOS 13.0, *) { host.sizingOptions = [] }
             window.contentView = host
             window.center()

@@ -917,6 +917,8 @@ struct TestTab: View {
             HStack(spacing: 12) {
                 Button("Fix", action: fix)
                     .buttonStyle(NeuButtonStyle(pastel: .tomato))
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .help("Fix (⌘↩)")
                 Button(set == .classic ? "New slips" : "Next example") {
                     load(set == .classic ? index : (index + 1) % setCount)
                 }
