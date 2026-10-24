@@ -51,8 +51,8 @@ Requires macOS 14 (Sonoma) or newer. Works on Apple Silicon and Intel Macs.
 
 1. Write your paragraph anywhere.
 2. Select it, or just leave the cursor in the text box.
-3. Press the hotkey: **⌥ Space** on the built-in keyboard, **F14 / F5** on an external one. You can change these in settings.
-   Double-tapping **Right Shift** also works.
+3. Press the hotkey: **⌥ Space** (Option + Space). On an external keyboard with an F14 key, **F14** works too.
+   Double-tapping **Right Shift** also works. You can change the hotkeys in settings.
 
 The keyboard icon in the menu bar flashes with the time it took. Click it to open settings: hotkeys, your learned dictionary, and a Test tab to try it out (Short, Long, and Classic texts with random slips and a score).
 

@@ -730,13 +730,13 @@ struct HotkeysTab: View {
                               title: "External",
                               subtitle: state.isNuPhyConnected ? state.detectedKeyboardName : "Not connected",
                               pastel: .teal,
-                              active: state.usingExternalProfile,
+                              active: state.profileMode != .builtIn,
                               currentLabel: keyCodeToString(state.nuphyKeyCode, flags: CGEventFlags(rawValue: state.nuphyFlagsRaw)))
                     HotkeyRow(target: .mac,
                               title: "Built-in",
                               subtitle: "MacBook keyboard",
                               pastel: .tomato,
-                              active: !state.usingExternalProfile,
+                              active: state.profileMode != .external,
                               currentLabel: keyCodeToString(state.macKeyCode, flags: CGEventFlags(rawValue: state.macFlagsRaw)))
                 }
             }

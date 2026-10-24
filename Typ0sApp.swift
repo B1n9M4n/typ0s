@@ -301,25 +301,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             lastRightShiftTime = now
         }
         
-        // 3. Check Active Keyboard Profile Hotkey (Auto-switches between NuPhy and MacBook!)
+        // 3. Hotkeys. Auto: both profiles' hotkeys work, so any keyboard (or a mouse that reports
+        //    itself as a keyboard) never leaves you with a hotkey you can't press. External / Built-in: only that one.
         if type == .keyDown {
-            let activeCode: Int64
-            let activeFlags: CGEventFlags
-            
-            if state.usingExternalProfile {
-                activeCode = state.nuphyKeyCode
-                activeFlags = CGEventFlags(rawValue: state.nuphyFlagsRaw)
-                // Also support F5 (96) automatically when NuPhy is connected and default F14 (107) is set
-                if activeCode == 107 && keyCode == 96 && flags.isEmpty {
-                    DispatchQueue.main.async { self.fixTextDirectly() }
-                    return nil
-                }
-            } else {
-                activeCode = state.macKeyCode
-                activeFlags = CGEventFlags(rawValue: state.macFlagsRaw)
-            }
-            
-            if keyCode == activeCode && flags == activeFlags {
+            let mode = state.profileMode
+            let externalOn = mode != .builtIn
+            let builtInOn = mode != .external
+            let isExternal = keyCode == state.nuphyKeyCode && flags == CGEventFlags(rawValue: state.nuphyFlagsRaw)
+            // F5 also works on the NuPhy when the default F14 is set (only while an external keyboard is connected)
+            let isNuPhyF5 = state.isNuPhyConnected && state.nuphyKeyCode == 107 && keyCode == 96 && flags.isEmpty
+            let isBuiltIn = keyCode == state.macKeyCode && flags == CGEventFlags(rawValue: state.macFlagsRaw)
+            if (externalOn && (isExternal || isNuPhyF5)) || (builtInOn && isBuiltIn) {
                 DispatchQueue.main.async { self.fixTextDirectly() }
                 return nil
             }
