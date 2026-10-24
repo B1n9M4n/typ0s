@@ -2,6 +2,10 @@
 
 **Type fast. Fix later.** typ0s is a tiny macOS menu bar app that cleans up a messy paragraph in place, with one hotkey.
 
+![typ0s fixing a fast, messy sentence in Freewrite with one key (F14)](docs/demo.gif)
+
+*Typed fast in Freewrite, then one press of F14: `bnest` → best, `sdtop` → stop.*
+
 ## Why I made this
 
 I freewrite almost every day. Freewriting means you just keep typing: no fixing grammar, no going back, nothing except getting the idea out. I do it in Farza's [Freewrite](https://freewrite.io) app with **backspace turned off**, so there's no way to correct anything while I write.
