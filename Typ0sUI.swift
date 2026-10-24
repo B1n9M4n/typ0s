@@ -138,9 +138,23 @@ struct GlassSurface<S: InsettableShape>: View {
     }
 }
 
+/// Space Grotesk ships inside the app (Fonts/, SIL Open Font License) and is registered at launch
+enum AppFonts {
+    static let family = "Space Grotesk"
+
+    static func register(from directory: URL? = Bundle.main.resourceURL) {
+        guard let dir = directory,
+              let urls = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
+        for url in urls where url.pathExtension.lowercased() == "ttf" {
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        }
+    }
+}
+
 extension Font {
+    /// The app's UI font (falls back to the system font if Space Grotesk isn't available)
     static func nm(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .rounded)
+        .custom(AppFonts.family, size: size).weight(weight)
     }
 }
 
@@ -1068,9 +1082,9 @@ struct SettingsDashboardView: View {
             HStack(alignment: .center, spacing: 10) {
                 TyposLogo(size: 24, animated: true)
                 // Title text with candy colours flowing through it
-                FlowingGradient(colors: [Pastel.sky.ink, Pastel.bubblegum.ink], duration: 5)
-                    .mask(Text("typ0s").font(.nm(20, .semibold)))
-                    .frame(width: 64, height: 26)
+                Text("typ0s").font(.nm(22, .bold)).foregroundStyle(.clear)   // sizes the title to the font
+                    .overlay(FlowingGradient(colors: [Pastel.sky.ink, Pastel.bubblegum.ink], duration: 5)
+                        .mask(Text("typ0s").font(.nm(22, .bold))))
                 Spacer()
                 HStack(spacing: 6) {
                     StatusDot(on: true, color: state.usingExternalProfile ? Pastel.sky.ink : Pastel.bubblegum.ink)

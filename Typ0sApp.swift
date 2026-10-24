@@ -445,6 +445,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct MainApp {
     static func main() {
+        AppFonts.register()
         // build.sh runs `Typos --export-icon <file.png>` to draw the app icon, then exits
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--export-icon"), i + 1 < args.count {

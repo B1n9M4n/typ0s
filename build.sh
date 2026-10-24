@@ -32,6 +32,9 @@ done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 rm -rf "$ICONSET" "$OUT/icon-1024.png"
 
+echo "→ Adding fonts…"
+cp Fonts/*.ttf Fonts/OFL.txt "$APP/Contents/Resources/"
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -52,8 +55,16 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-echo "→ Signing (ad-hoc)…"
-codesign --force --sign - "$APP" >/dev/null 2>&1
+# Sign with a stable local certificate if you have one, so macOS keeps the Accessibility
+# permission across rebuilds. Without it, sign ad-hoc (works, but re-allow after each rebuild).
+SIGN_ID="typ0s Local Signing"
+if security find-identity -p codesigning 2>/dev/null | grep -q "\"$SIGN_ID\""; then
+  echo "→ Signing with \"$SIGN_ID\"…"
+  codesign --force --sign "$SIGN_ID" "$APP"
+else
+  echo "→ Signing (ad-hoc)…"
+  codesign --force --sign - "$APP" >/dev/null 2>&1
+fi
 
 echo "→ Zipping for sharing…"
 ditto -c -k --keepParent "$APP" "$OUT/typ0s-$VERSION.zip"
