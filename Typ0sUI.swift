@@ -87,11 +87,16 @@ struct PastelBackdrop: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 24, paused: reduceMotion)) { ctx in
             let t = reduceMotion ? 0 : ctx.date.timeIntervalSinceReferenceDate
+            // Vivid candy light, softly "breathing", so the glass on top has something to glow through
+            let k = scheme == .dark ? 0.55 : 0.42
+            let c = Pastel.logoColors
             ZStack {
                 Color.nmBase
-                glow(Pastel.sky.fill, opacity: 0.80, at: orbit(t, period: 26, phase: 0.0))
-                glow(Pastel.bubblegum.fill, opacity: 0.75, at: orbit(t, period: 32, phase: 2.1))
-                glow(Pastel.lemon.fill, opacity: scheme == .dark ? 0.30 : 0.70, at: orbit(t, period: 29, phase: 4.2))
+                glow(c[0], opacity: k * breathe(t, 0.0), radius: 470, at: orbit(t, period: 26, phase: 0.0))
+                glow(c[1], opacity: k * breathe(t, 1.7), radius: 450, at: orbit(t, period: 32, phase: 2.1))
+                glow(c[2], opacity: k * (scheme == .dark ? 0.55 : 0.9) * breathe(t, 3.1), radius: 420,
+                     at: orbit(t, period: 29, phase: 4.2))
+                glow(c[0], opacity: k * 0.6 * breathe(t, 4.4), radius: 300, at: orbit(t, period: 21, phase: 5.3))
             }
         }
     }
@@ -102,8 +107,34 @@ struct PastelBackdrop: View {
         return UnitPoint(x: 0.5 + 0.45 * cos(a), y: 0.5 + 0.40 * sin(a * 0.8))
     }
 
-    private func glow(_ color: Color, opacity: Double, at center: UnitPoint) -> some View {
-        RadialGradient(colors: [color.opacity(opacity), .clear], center: center, startRadius: 0, endRadius: 360)
+    /// Gentle pulse between 80% and 100% brightness
+    private func breathe(_ t: TimeInterval, _ phase: Double) -> Double {
+        0.9 + 0.1 * sin(t * 0.5 + phase)
+    }
+
+    private func glow(_ color: Color, opacity: Double, radius: CGFloat, at center: UnitPoint) -> some View {
+        RadialGradient(colors: [color.opacity(opacity), color.opacity(opacity * 0.35), .clear],
+                       center: center, startRadius: 0, endRadius: radius)
+    }
+}
+
+// MARK: - Glass
+extension Color {
+    static let glassFill = dynamic(rgb(1, 1, 1, 0.42), rgb(0.16, 0.17, 0.21, 0.45))
+    static let glassSheen = dynamic(rgb(1, 1, 1, 0.55), rgb(1, 1, 1, 0.10))
+    static let glassEdge = dynamic(rgb(1, 1, 1, 0.90), rgb(1, 1, 1, 0.22))
+    static let glassEdgeLow = dynamic(rgb(1, 1, 1, 0.20), rgb(1, 1, 1, 0.04))
+}
+
+/// Frosted glass pane: translucent fill, a sheen from the top, a bright top edge and a soft shadow
+struct GlassSurface<S: InsettableShape>: View {
+    var shape: S
+    var body: some View {
+        shape.fill(Color.glassFill)
+            .overlay(shape.fill(LinearGradient(colors: [Color.glassSheen, .clear], startPoint: .top, endPoint: .center)))
+            .overlay(shape.strokeBorder(LinearGradient(colors: [Color.glassEdge, Color.glassEdgeLow],
+                                                       startPoint: .top, endPoint: .bottom), lineWidth: 1))
+            .shadow(color: .nmShade, radius: 18, y: 8)
     }
 }
 
@@ -473,7 +504,7 @@ struct NeuCard<Content: View>: View {
         content
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(NeuSurface(shape: RoundedRectangle(cornerRadius: 18, style: .continuous), depth: 6))
+            .background(GlassSurface(shape: RoundedRectangle(cornerRadius: 18, style: .continuous)))
     }
 }
 
@@ -1072,7 +1103,7 @@ struct SettingsDashboardView: View {
                 }
             }
             .padding(5)
-            .background(NeuSurface(shape: Capsule(), inset: true, depth: 4))
+            .background(GlassSurface(shape: Capsule()))
             .padding(.horizontal, 28).padding(.top, 20)
 
             if !state.accessibilityGranted {
