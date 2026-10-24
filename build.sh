@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 SOURCES=(Typ0sApp.swift Typ0sUI.swift FastTypoEngine.swift WordModel.swift)
-VERSION="0.2.0"
+VERSION="0.3.0"
 MIN_MACOS="14.0"
 OUT="build"
 APP="$OUT/typ0s.app"
@@ -48,7 +48,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
-    <key>CFBundleVersion</key><string>2</string>
+    <key>CFBundleVersion</key><string>3</string>
     <key>LSMinimumSystemVersion</key><string>$MIN_MACOS</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
@@ -68,6 +68,6 @@ else
 fi
 
 echo "→ Zipping for sharing…"
-ditto -c -k --keepParent "$APP" "$OUT/typ0s-$VERSION.zip"
+ditto -c -k --norsrc --keepParent "$APP" "$OUT/typ0s-$VERSION.zip"
 
 echo "✓ Done: $APP  and  $OUT/typ0s-$VERSION.zip"
