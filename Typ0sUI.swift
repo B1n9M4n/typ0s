@@ -193,7 +193,7 @@ func keyCodeToString(_ code: Int64, flags: CGEventFlags) -> String {
         49: "SPACE", 36: "RETURN", 48: "TAB", 51: "DELETE", 53: "ESC",
         122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6", 98: "F7",
         100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12", 105: "F13",
-        107: "F14", 113: "F15", 106: "F16", 64: "F17", 79: "F18", 80: "F19",
+        107: "F14", 114: "INS", 113: "F15", 106: "F16", 64: "F17", 79: "F18", 80: "F19",
         176: "MIC", 60: "R-SHIFT",
         0: "A", 1: "S", 2: "D", 3: "F", 4: "H", 5: "G", 6: "Z", 7: "X",
         8: "C", 9: "V", 11: "B", 12: "Q", 13: "W", 14: "E", 15: "R",
@@ -237,6 +237,7 @@ class Typ0sState: ObservableObject {
 
     @Published var isFlashingSuccess = false
     @Published var lastLatencyMs: Double = 0
+    @Published var lastTriggerLabel = ""      // the key that fired the last fix, shown in the pill
     @Published var accessibilityGranted = false
 
     enum RecordingTarget { case nuphy, mac }
@@ -269,8 +270,15 @@ class Typ0sState: ObservableObject {
 
     var activeHotkeyDisplay: String {
         usingExternalProfile
-            ? keyCodeToString(nuphyKeyCode, flags: CGEventFlags(rawValue: nuphyFlagsRaw))
+            ? hotkeyLabel(nuphyKeyCode, flags: CGEventFlags(rawValue: nuphyFlagsRaw), external: true)
             : keyCodeToString(macKeyCode, flags: CGEventFlags(rawValue: macFlagsRaw))
+    }
+
+    /// NuPhy keyboards send key code 114 (macOS "Help/Insert") from the key printed F14, so call it F14 there
+    func hotkeyLabel(_ code: Int64, flags: CGEventFlags, external: Bool) -> String {
+        let name = detectedKeyboardName.lowercased()
+        if external && code == 114 && flags.isEmpty && (name.contains("nuphy") || name.contains("air75")) { return "F14" }
+        return keyCodeToString(code, flags: flags)
     }
 
     func startRecording(_ t: RecordingTarget) {
@@ -614,8 +622,17 @@ struct FloatingPillView: View {
             let ok = state.isFlashingSuccess
             HStack(spacing: 9) {
                 FireOrb(angle: angle, active: ok)
-                Group {
+                HStack(spacing: 7) {
                     if ok {
+                        // The key that fired the fix: screen recorders can't show it, because typ0s swallows it
+                        if !state.lastTriggerLabel.isEmpty {
+                            Text(state.lastTriggerLabel)
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundColor(Pastel.tomato.ink)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Capsule().fill(Pastel.tomato.fill))
+                                .transition(.scale.combined(with: .opacity))
+                        }
                         Text(String(format: "Fixed · %.1f ms", state.lastLatencyMs))
                             .foregroundStyle(LinearGradient(colors: [Pastel.teal.ink, Pastel.tomato.ink],
                                                             startPoint: .leading, endPoint: .trailing))
@@ -624,7 +641,8 @@ struct FloatingPillView: View {
                     }
                 }
                 .font(.nm(11, .semibold))
-                .frame(width: 90, alignment: .leading)
+                .lineLimit(1)
+                .frame(width: 160, alignment: .leading)
                 Button(action: onOpenSettings) {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
                         .font(.system(size: 8, weight: .bold))
@@ -693,7 +711,8 @@ struct HotkeyRow: View {
             }
         } else if pending {
             HStack(spacing: 10) {
-                KeyChip(label: keyCodeToString(state.pendingKeyCode, flags: CGEventFlags(rawValue: state.pendingFlagsRaw)),
+                KeyChip(label: state.hotkeyLabel(state.pendingKeyCode, flags: CGEventFlags(rawValue: state.pendingFlagsRaw),
+                                                 external: target == .nuphy),
                         pastel: pastel)
                 Button("Save") { state.savePending() }
                     .buttonStyle(NeuButtonStyle(pastel: .tomato))
@@ -731,7 +750,7 @@ struct HotkeysTab: View {
                               subtitle: state.isNuPhyConnected ? state.detectedKeyboardName : "Not connected",
                               pastel: .teal,
                               active: state.profileMode != .builtIn,
-                              currentLabel: keyCodeToString(state.nuphyKeyCode, flags: CGEventFlags(rawValue: state.nuphyFlagsRaw)))
+                              currentLabel: state.hotkeyLabel(state.nuphyKeyCode, flags: CGEventFlags(rawValue: state.nuphyFlagsRaw), external: true))
                     HotkeyRow(target: .mac,
                               title: "Built-in",
                               subtitle: "MacBook keyboard",

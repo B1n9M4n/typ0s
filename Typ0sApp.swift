@@ -93,7 +93,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     // MARK: - Top Floating Pill Window
     func setupFloatingPillWindow() {
-        let pillWidth: CGFloat = 196
+        let pillWidth: CGFloat = 266
         let pillHeight: CGFloat = 48 // includes padding for the neumorphic shadows
         
         let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
@@ -347,7 +347,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let now = CFAbsoluteTimeGetCurrent()
             if now - lastRightShiftTime < 0.32 {
                 lastRightShiftTime = 0
-                DispatchQueue.main.async { self.fixTextDirectly() }
+                DispatchQueue.main.async { self.fire(label: "⇧ ⇧") }
                 return nil
             }
             lastRightShiftTime = now
@@ -363,13 +363,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // F5 also works on the NuPhy when the default F14 is set (only while an external keyboard is connected)
             let isNuPhyF5 = state.isNuPhyConnected && state.nuphyKeyCode == 107 && keyCode == 96 && flags.isEmpty
             let isBuiltIn = keyCode == state.macKeyCode && flags == CGEventFlags(rawValue: state.macFlagsRaw)
-            if (externalOn && (isExternal || isNuPhyF5)) || (builtInOn && isBuiltIn) {
-                DispatchQueue.main.async { self.fixTextDirectly() }
+            if externalOn && (isExternal || isNuPhyF5) {
+                let label = isNuPhyF5 ? "F5" : state.hotkeyLabel(keyCode, flags: flags, external: true)
+                DispatchQueue.main.async { self.fire(label: label) }
+                return nil
+            }
+            if builtInOn && isBuiltIn {
+                let label = keyCodeToString(keyCode, flags: flags)
+                DispatchQueue.main.async { self.fire(label: label) }
                 return nil
             }
         }
         
         return Unmanaged.passUnretained(event)
+    }
+    
+    /// Run a fix and remember which key started it, so the pill can show it (screen recorders can't see it:
+    /// typ0s swallows the hotkey so it doesn't also type into your text)
+    func fire(label: String) {
+        state.lastTriggerLabel = label
+        fixTextDirectly()
     }
     
     func flashPillSuccess(latencyMs: Double) {
