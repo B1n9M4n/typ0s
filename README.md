@@ -56,6 +56,8 @@ Requires macOS 14 (Sonoma) or newer. Works on Apple Silicon and Intel Macs.
 
 The keyboard icon in the menu bar flashes with the time it took. Click it to open settings: hotkeys, your learned dictionary, and a Test tab to try it out (Short, Long, and Classic texts with random slips and a score).
 
+**Opening settings:** click the menu bar icon, or, if it's hidden behind the notch, search **typ0s** in Spotlight (⌘ Space) or press **⌥ ⌘ ,** from any app. In the settings window, **⌘ ,** reopens it, **⌘ W** closes it and **⌘ Q** quits typ0s.
+
 ## Build from source
 
 You need Xcode or the Command Line Tools (`xcode-select --install`).

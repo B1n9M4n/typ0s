@@ -35,6 +35,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupFloatingPillWindow()
         setupMenuBar()
+        setupMainMenu()
         checkAccessibilityPermissions()
         setupEventTap()
         keyboardMonitor.startMonitoring()
@@ -212,6 +213,51 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = menu
     }
     
+    /// Menu bar apps get no menus by default, so ⌘Q, ⌘, ⌘W and copy/paste do nothing in our window.
+    /// This invisible main menu gives the settings window the standard shortcuts.
+    func setupMainMenu() {
+        let main = NSMenu()
+
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu(title: "typ0s")
+        appMenu.addItem(withTitle: "Settings…", action: #selector(openSettingsAction), keyEquivalent: ",").target = self
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Hide typ0s", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Quit typ0s", action: #selector(quitApp), keyEquivalent: "q").target = self
+        appItem.submenu = appMenu
+        main.addItem(appItem)
+
+        let editItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+        main.addItem(editItem)
+
+        let windowItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowMenu.addItem(withTitle: "Minimize to Pill", action: #selector(collapseToPill), keyEquivalent: "m").target = self
+        windowItem.submenu = windowMenu
+        main.addItem(windowItem)
+
+        NSApp.mainMenu = main
+    }
+
+    /// Opening typ0s again (Spotlight, Launchpad, Finder) while it's running shows settings,
+    /// so you can always reach it even when the menu bar icon is hidden behind the notch.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        openSettingsWindow()
+        return true
+    }
+
     @objc func openSettingsAction() {
         openSettingsWindow()
     }
@@ -273,6 +319,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // ⌘Z soon after a fix means the fix was unwanted: don't learn from it (the key still goes through)
         if type == .keyDown && keyCode == 6 && flags == .maskCommand {
             UserDictionaryStore.shared.cancelPendingFixes()
+        }
+        
+        // ⌥⌘, from any app opens typ0s settings (the menu bar icon can hide behind the notch)
+        if type == .keyDown && keyCode == 43 && flags == [.maskCommand, .maskAlternate] && state.isRecordingFor == nil {
+            DispatchQueue.main.async { self.openSettingsWindow() }
+            return nil
         }
         
         // 1. Recording a new hotkey: capture it as *pending* (user confirms with SAVE). Esc cancels.
