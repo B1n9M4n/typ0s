@@ -20,18 +20,19 @@ extension Color {
         })
     }
 
-    static let nmBase = dynamic(rgb(0.961, 0.965, 0.980), rgb(0.122, 0.129, 0.157))      // #F5F6FA / #1F2128
-    static let nmRaised = dynamic(.white, rgb(0.165, 0.173, 0.208))                       // knobs, active segment
+    static let nmBase = dynamic(rgb(0.992, 0.976, 0.910), rgb(0.035, 0.035, 0.040))      // warm cream / near-black
+    static let nmRaised = dynamic(rgb(1.0, 0.996, 0.975), rgb(0.12, 0.10, 0.10))         // knobs, active segment
     static let nmLight = dynamic(.white, rgb(1, 1, 1, 0.06))
-    static let nmShade = dynamic(rgb(0.72, 0.75, 0.84, 0.45), rgb(0, 0, 0, 0.55))
-    static let nmInk = dynamic(rgb(0.22, 0.23, 0.30), rgb(0.90, 0.91, 0.95))
-    static let nmMuted = dynamic(rgb(0.22, 0.23, 0.30, 0.5), rgb(0.90, 0.91, 0.95, 0.5))
+    static let nmShade = dynamic(rgb(0.70, 0.45, 0.30, 0.30), rgb(0, 0, 0, 0.65))
+    static let nmInk = dynamic(rgb(0.13, 0.08, 0.07), rgb(0.99, 0.96, 0.86))
+    static let nmMuted = dynamic(rgb(0.13, 0.08, 0.07, 0.5), rgb(0.99, 0.96, 0.86, 0.5))
 }
 
-// Candy palette: bubblegum pink, lemon and sky blue. Each gradient blends into a neighbour.
+// Fever palette: a heat map (cream core, gold, orange, red, blue fringe on black).
+// Each accent is a pair: a soft fill plus a deeper ink of the same hue.
 struct Pastel {
     let fill: Color
-    let fill2: Color   // gradient partner
+    let fill2: Color   // gradient partner (the next colour along the heat map)
     let ink: Color
 
     var gradient: AnyShapeStyle {
@@ -40,23 +41,33 @@ struct Pastel {
     /// Colours for the slowly flowing gradient on primary controls
     var flowColors: [Color] { [fill, fill2, fill] }
 
-    private static let bubblegumFill = Color.dynamic(rgb(1.00, 0.84, 0.92), rgb(0.45, 0.18, 0.33))
-    private static let lemonFill = Color.dynamic(rgb(1.00, 0.95, 0.68), rgb(0.40, 0.36, 0.12))
-    private static let skyFill = Color.dynamic(rgb(0.80, 0.92, 1.00), rgb(0.15, 0.29, 0.45))
+    // The six source colours: #FCF5AF #F0A533 #E44F0A #BA011A #0B4B8B #000000
+    static let cream = Color(red: 0.988, green: 0.961, blue: 0.686)
+    static let goldHex = Color(red: 0.941, green: 0.647, blue: 0.200)
+    static let orange = Color(red: 0.894, green: 0.310, blue: 0.039)
+    static let redHex = Color(red: 0.729, green: 0.004, blue: 0.102)
+    static let blueHex = Color(red: 0.043, green: 0.294, blue: 0.545)
 
-    static let bubblegum = Pastel(fill: bubblegumFill, fill2: skyFill,
-                                  ink: .dynamic(rgb(0.86, 0.25, 0.56), rgb(1.00, 0.68, 0.84)))
-    static let lemon = Pastel(fill: lemonFill, fill2: bubblegumFill,
-                              ink: .dynamic(rgb(0.62, 0.48, 0.00), rgb(1.00, 0.90, 0.45)))
-    static let sky = Pastel(fill: skyFill, fill2: bubblegumFill,
-                            ink: .dynamic(rgb(0.16, 0.50, 0.85), rgb(0.60, 0.82, 1.00)))
+    private static let flameFill = Color.dynamic(rgb(0.99, 0.84, 0.78), rgb(0.36, 0.05, 0.07))
+    private static let orangeFill = Color.dynamic(rgb(1.00, 0.88, 0.74), rgb(0.40, 0.15, 0.03))
+    private static let goldFill = Color.dynamic(rgb(1.00, 0.93, 0.72), rgb(0.36, 0.24, 0.05))
+    private static let creamFill = Color.dynamic(rgb(0.99, 0.97, 0.80), rgb(0.30, 0.27, 0.12))
+    private static let cobaltFill = Color.dynamic(rgb(0.83, 0.88, 0.96), rgb(0.05, 0.17, 0.32))
 
-    /// The three candy inks (adapt to light/dark), for text
-    static let candyInks: [Color] = [sky.ink, bubblegum.ink, lemon.ink]
-    /// Vivid fixed candy colours for the logo, orb and ring, so the white glyph reads in both modes
-    static let logoColors: [Color] = [Color(red: 0.30, green: 0.62, blue: 1.00),
-                                      Color(red: 1.00, green: 0.38, blue: 0.68),
-                                      Color(red: 1.00, green: 0.76, blue: 0.20)]
+    /// Red: main actions, the built-in keyboard
+    static let flame = Pastel(fill: flameFill, fill2: orangeFill,
+                              ink: .dynamic(rgb(0.729, 0.004, 0.102), rgb(1.00, 0.52, 0.45)))
+    /// Gold: learned words, warnings
+    static let gold = Pastel(fill: goldFill, fill2: creamFill,
+                             ink: .dynamic(rgb(0.66, 0.38, 0.00), rgb(0.941, 0.647, 0.200)))
+    /// Blue: the external keyboard, switches
+    static let cobalt = Pastel(fill: cobaltFill, fill2: flameFill,
+                               ink: .dynamic(rgb(0.043, 0.294, 0.545), rgb(0.55, 0.74, 1.00)))
+
+    /// The three accent inks (adapt to light/dark), for text
+    static let heatInks: [Color] = [cobalt.ink, flame.ink, gold.ink]
+    /// Fixed fire colours for the logo, orb and ring, so the white glyph reads in both modes
+    static let logoColors: [Color] = [goldHex, orange, redHex]
 }
 
 /// A gradient wider than its view that slides slowly back and forth, so colours flow
@@ -79,7 +90,7 @@ struct FlowingGradient: View {
     }
 }
 
-/// Candy backdrop: three soft glows (sky, bubblegum, lemon) drifting slowly behind the window
+/// Fever backdrop: heat blooms drifting slowly behind the window
 struct PastelBackdrop: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var scheme
@@ -87,17 +98,29 @@ struct PastelBackdrop: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 24, paused: reduceMotion)) { ctx in
             let t = reduceMotion ? 0 : ctx.date.timeIntervalSinceReferenceDate
-            // Vivid candy light, softly "breathing", so the glass on top has something to glow through
-            let k = scheme == .dark ? 0.55 : 0.42
-            let c = Pastel.logoColors
+            // Heat blooms like a thermal image: blue fringe -> red -> orange -> gold -> cream core
+            let k = scheme == .dark ? 1.0 : 0.5
             ZStack {
                 Color.nmBase
-                glow(c[0], opacity: k * breathe(t, 0.0), radius: 470, at: orbit(t, period: 26, phase: 0.0))
-                glow(c[1], opacity: k * breathe(t, 1.7), radius: 450, at: orbit(t, period: 32, phase: 2.1))
-                glow(c[2], opacity: k * (scheme == .dark ? 0.55 : 0.9) * breathe(t, 3.1), radius: 420,
-                     at: orbit(t, period: 29, phase: 4.2))
-                glow(c[0], opacity: k * 0.6 * breathe(t, 4.4), radius: 300, at: orbit(t, period: 21, phase: 5.3))
+                bloom(t, radius: 580, strength: k, path: (period: 34, phase: 0.0))
+                bloom(t, radius: 300, strength: k * 0.8, path: (period: 27, phase: 3.3))
             }
+        }
+    }
+
+    /// One heat bloom: rings of the palette sharing a drifting centre, each wobbling a little
+    @ViewBuilder
+    private func bloom(_ t: TimeInterval, radius r: CGFloat, strength k: Double,
+                       path: (period: Double, phase: Double)) -> some View {
+        let c = orbit(t, period: path.period, phase: path.phase)
+        let rings: [(Color, CGFloat, Double)] = [
+            (Pastel.blueHex, 1.00, 0.55), (Pastel.redHex, 0.80, 0.70),
+            (Pastel.orange, 0.62, 0.75), (Pastel.goldHex, 0.45, 0.75), (Pastel.cream, 0.28, 0.85)
+        ]
+        ForEach(0..<rings.count, id: \.self) { i in
+            let (color, size, opacity) = rings[i]
+            let wobble = UnitPoint(x: c.x + 0.03 * cos(t * 0.7 + Double(i)), y: c.y + 0.03 * sin(t * 0.9 + Double(i)))
+            glow(color, opacity: opacity * k * breathe(t, Double(i)), radius: r * size, at: wobble)
         }
     }
 
@@ -120,7 +143,7 @@ struct PastelBackdrop: View {
 
 // MARK: - Glass
 extension Color {
-    static let glassFill = dynamic(rgb(1, 1, 1, 0.42), rgb(0.16, 0.17, 0.21, 0.45))
+    static let glassFill = dynamic(rgb(1, 1, 1, 0.45), rgb(0.07, 0.05, 0.05, 0.50))
     static let glassSheen = dynamic(rgb(1, 1, 1, 0.55), rgb(1, 1, 1, 0.10))
     static let glassEdge = dynamic(rgb(1, 1, 1, 0.90), rgb(1, 1, 1, 0.22))
     static let glassEdgeLow = dynamic(rgb(1, 1, 1, 0.20), rgb(1, 1, 1, 0.04))
@@ -338,7 +361,7 @@ struct NeuSurface<S: Shape>: View {
 /// Status dot: colored when on, faint when off
 struct StatusDot: View {
     var on: Bool = true
-    var color: Color = Pastel.bubblegum.ink
+    var color: Color = Pastel.flame.ink
     var body: some View {
         Circle()
             .fill(on ? color : Color.nmMuted.opacity(0.3))
@@ -393,7 +416,7 @@ struct LogoMark: View {
     }
 }
 
-/// App logo: candy squircle with the white cursor + sparkle
+/// App logo: fire squircle with the white cursor + sparkle
 struct TyposLogo: View {
     var size: CGFloat = 22
     var animated: Bool = false
@@ -405,7 +428,7 @@ struct TyposLogo: View {
             .overlay { if animated { FlowingGradient(colors: Pastel.logoColors, duration: 5).clipShape(shape) } }
             .overlay(LogoMark(color: .white, size: size * 0.9))
             .frame(width: size, height: size)
-            .shadow(color: Pastel.bubblegum.ink.opacity(0.3), radius: size * 0.15, y: size * 0.06)
+            .shadow(color: Pastel.flame.ink.opacity(0.3), radius: size * 0.15, y: size * 0.06)
     }
 }
 
@@ -472,7 +495,7 @@ struct NeuButtonStyle: ButtonStyle {
 
 /// Inset track with a raised knob
 struct NeuToggleStyle: ToggleStyle {
-    var pastel: Pastel = .sky
+    var pastel: Pastel = .cobalt
     func makeBody(configuration: Configuration) -> some View {
         HStack {
             configuration.label
@@ -550,8 +573,8 @@ struct Caption: View {
 
 // MARK: - Floating Top Pill (optional; the menu bar icon is the default status)
 
-/// Small glowing orb whose candy colours slowly swirl; brightens on a successful fix
-struct CandyOrb: View {
+/// Small glowing orb whose fire colours slowly swirl; brightens on a successful fix
+struct FireOrb: View {
     var angle: Double
     var active: Bool
     var body: some View {
@@ -559,12 +582,12 @@ struct CandyOrb: View {
             .fill(AngularGradient(colors: Pastel.logoColors + [Pastel.logoColors[0]],
                                   center: .center, angle: .degrees(angle * 2)))
             .frame(width: 10, height: 10)
-            .shadow(color: Pastel.bubblegum.ink.opacity(active ? 0.8 : 0.35), radius: active ? 6 : 3)
+            .shadow(color: Pastel.flame.ink.opacity(active ? 0.8 : 0.35), radius: active ? 6 : 3)
             .scaleEffect(active ? 1.2 : 1)
     }
 }
 
-/// Frosted-glass capsule with a slowly rotating candy ring around its edge
+/// Frosted-glass capsule with a slowly rotating fire ring around its edge
 struct FloatingPillView: View {
     @ObservedObject var state = Typ0sState.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -575,11 +598,11 @@ struct FloatingPillView: View {
             let angle = reduceMotion ? 0 : (ctx.date.timeIntervalSinceReferenceDate * 24).truncatingRemainder(dividingBy: 360)
             let ok = state.isFlashingSuccess
             HStack(spacing: 9) {
-                CandyOrb(angle: angle, active: ok)
+                FireOrb(angle: angle, active: ok)
                 Group {
                     if ok {
                         Text(String(format: "Fixed · %.1f ms", state.lastLatencyMs))
-                            .foregroundStyle(LinearGradient(colors: [Pastel.sky.ink, Pastel.bubblegum.ink],
+                            .foregroundStyle(LinearGradient(colors: [Pastel.cobalt.ink, Pastel.flame.ink],
                                                             startPoint: .leading, endPoint: .trailing))
                     } else {
                         Text("typ0s").foregroundStyle(Color.nmInk.opacity(0.75))
@@ -602,7 +625,7 @@ struct FloatingPillView: View {
                 ZStack {
                     Capsule().fill(.ultraThinMaterial)
                     Capsule().fill(Color.nmBase.opacity(0.55))
-                    Capsule().fill(LinearGradient(colors: [Pastel.sky.fill, Pastel.bubblegum.fill, Pastel.lemon.fill],
+                    Capsule().fill(LinearGradient(colors: [Pastel.cobalt.fill, Pastel.flame.fill, Pastel.gold.fill],
                                                   startPoint: .leading, endPoint: .trailing))
                         .opacity(ok ? 0.85 : 0.25)
                 }
@@ -614,7 +637,7 @@ struct FloatingPillView: View {
                     lineWidth: 1.2)
                 .opacity(ok ? 0.9 : 0.45)
             )
-            .shadow(color: Pastel.bubblegum.ink.opacity(0.18), radius: 6, y: 2)
+            .shadow(color: Pastel.flame.ink.opacity(0.18), radius: 6, y: 2)
             .padding(8) // room for the glow inside the borderless panel
             .animation(.spring(response: 0.35, dampingFraction: 0.7), value: ok)
         }
@@ -658,7 +681,7 @@ struct HotkeyRow: View {
                 KeyChip(label: keyCodeToString(state.pendingKeyCode, flags: CGEventFlags(rawValue: state.pendingFlagsRaw)),
                         pastel: pastel)
                 Button("Save") { state.savePending() }
-                    .buttonStyle(NeuButtonStyle(pastel: .bubblegum))
+                    .buttonStyle(NeuButtonStyle(pastel: .flame))
                     .keyboardShortcut(.defaultAction)
                 Button("Cancel") { state.cancelRecording() }
                     .buttonStyle(NeuButtonStyle(tint: .nmMuted))
@@ -691,13 +714,13 @@ struct HotkeysTab: View {
                     HotkeyRow(target: .nuphy,
                               title: "External",
                               subtitle: state.isNuPhyConnected ? state.detectedKeyboardName : "Not connected",
-                              pastel: .sky,
+                              pastel: .cobalt,
                               active: state.usingExternalProfile,
                               currentLabel: keyCodeToString(state.nuphyKeyCode, flags: CGEventFlags(rawValue: state.nuphyFlagsRaw)))
                     HotkeyRow(target: .mac,
                               title: "Built-in",
                               subtitle: "MacBook keyboard",
-                              pastel: .bubblegum,
+                              pastel: .flame,
                               active: !state.usingExternalProfile,
                               currentLabel: keyCodeToString(state.macKeyCode, flags: CGEventFlags(rawValue: state.macFlagsRaw)))
                 }
@@ -730,13 +753,13 @@ struct DictionaryTab: View {
             Caption(text: "typ0s learns on its own: a typo you make twice is memorised, and names it doesn't know are protected after \(UserDictionaryStore.learnThreshold) uses. Press ⌘Z right after a fix and nothing from it is learned.")
             HStack(spacing: 10) {
                 field("Typo (optional)", $typo)
-                Image(systemName: "arrow.right").font(.system(size: 10, weight: .semibold)).foregroundColor(Pastel.bubblegum.ink)
+                Image(systemName: "arrow.right").font(.system(size: 10, weight: .semibold)).foregroundColor(Pastel.flame.ink)
                 field("Word", $word)
                 Button("Add") {
                     store.addRule(typo: typo, replacement: word)
                     typo = ""; word = ""
                 }
-                .buttonStyle(NeuButtonStyle(pastel: .sky))
+                .buttonStyle(NeuButtonStyle(pastel: .cobalt))
                 .disabled(word.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             ScrollView {
@@ -745,20 +768,20 @@ struct DictionaryTab: View {
                         HStack(spacing: 8) {
                             if rule.typo.isEmpty {
                                 Text(rule.replacement).font(.nm(13, .medium)).foregroundColor(.nmInk)
-                                let tag = rule.learned ? Pastel.lemon : Pastel.bubblegum
+                                let tag = rule.learned ? Pastel.gold : Pastel.flame
                                 Text(rule.learned ? "learned" : "protected")
                                     .font(.nm(10, .medium)).foregroundColor(tag.ink)
                                     .padding(.horizontal, 7).padding(.vertical, 2)
                                     .background(Capsule().fill(tag.gradient))
                             } else {
                                 Text(rule.typo).font(.nm(13)).foregroundColor(.nmMuted).strikethrough()
-                                Image(systemName: "arrow.right").font(.system(size: 9)).foregroundColor(Pastel.bubblegum.ink)
+                                Image(systemName: "arrow.right").font(.system(size: 9)).foregroundColor(Pastel.flame.ink)
                                 Text(rule.replacement).font(.nm(13, .medium)).foregroundColor(.nmInk)
                                 if rule.learned {
                                     Text("learned")
-                                        .font(.nm(10, .medium)).foregroundColor(Pastel.lemon.ink)
+                                        .font(.nm(10, .medium)).foregroundColor(Pastel.gold.ink)
                                         .padding(.horizontal, 7).padding(.vertical, 2)
-                                        .background(Capsule().fill(Pastel.lemon.gradient))
+                                        .background(Capsule().fill(Pastel.gold.gradient))
                                 }
                             }
                             Spacer()
@@ -878,7 +901,7 @@ struct TestTab: View {
 
             HStack(spacing: 12) {
                 Button("Fix", action: fix)
-                    .buttonStyle(NeuButtonStyle(pastel: .bubblegum))
+                    .buttonStyle(NeuButtonStyle(pastel: .flame))
                 Button(set == .classic ? "New slips" : "Next example") {
                     load(set == .classic ? index : (index + 1) % setCount)
                 }
@@ -891,9 +914,9 @@ struct TestTab: View {
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(ms > 0 ? String(format: "%.2f ms", ms) : "— ms")
                         .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundColor(ms > 0 ? Pastel.sky.ink : .nmMuted)
+                        .foregroundColor(ms > 0 ? Pastel.cobalt.ink : .nmMuted)
                     if let score {
-                        Text(score).font(.nm(10, .medium)).foregroundColor(Pastel.bubblegum.ink)
+                        Text(score).font(.nm(10, .medium)).foregroundColor(Pastel.flame.ink)
                     }
                 }
             }
@@ -933,7 +956,7 @@ struct TestTab: View {
     }
 }
 
-/// Fixed text where each replaced word lights up in candy colours, one after another, then settles
+/// Fixed text where each replaced word lights up in fire colours, one after another, then settles
 struct RevealText: View {
     static let duration: Double = 2.0
     let reveal: TestTab.Reveal
@@ -949,7 +972,7 @@ struct RevealText: View {
     private func attributed(elapsed: Double) -> AttributedString {
         var out = AttributedString()
         var order = 0
-        let tints = [Pastel.bubblegum, Pastel.sky, Pastel.lemon]
+        let tints = [Pastel.flame, Pastel.cobalt, Pastel.gold]
         for (i, w) in reveal.words.enumerated() {
             var word = AttributedString(w.text)
             word.foregroundColor = .nmInk
@@ -1067,13 +1090,13 @@ struct SettingsDashboardView: View {
             // Header (sits under the transparent title bar / traffic lights)
             HStack(alignment: .center, spacing: 10) {
                 TyposLogo(size: 24, animated: true)
-                // Title text with candy colours flowing through it
+                // Title text with fire colours flowing through it
                 Text("typ0s").font(.nm(20, .semibold)).foregroundStyle(.clear)   // sizes the title to the font
-                    .overlay(FlowingGradient(colors: [Pastel.sky.ink, Pastel.bubblegum.ink], duration: 5)
+                    .overlay(FlowingGradient(colors: [Pastel.flame.ink, Pastel.gold.ink], duration: 5)
                         .mask(Text("typ0s").font(.nm(20, .semibold))))
                 Spacer()
                 HStack(spacing: 6) {
-                    StatusDot(on: true, color: state.usingExternalProfile ? Pastel.sky.ink : Pastel.bubblegum.ink)
+                    StatusDot(on: true, color: state.usingExternalProfile ? Pastel.cobalt.ink : Pastel.flame.ink)
                     Text(state.detectedKeyboardName)
                         .font(.nm(11))
                         .foregroundColor(.nmMuted)
@@ -1108,14 +1131,14 @@ struct SettingsDashboardView: View {
 
             if !state.accessibilityGranted {
                 HStack(spacing: 10) {
-                    StatusDot(on: true, color: Pastel.lemon.ink)
+                    StatusDot(on: true, color: Pastel.gold.ink)
                     Text("Accessibility permission needed for hotkeys.")
                         .font(.nm(12))
                         .foregroundColor(.nmInk)
                     Spacer()
                     Button("Grant") {
                         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-                    }.buttonStyle(NeuButtonStyle(pastel: .lemon))
+                    }.buttonStyle(NeuButtonStyle(pastel: .gold))
                 }
                 .padding(.horizontal, 28).padding(.top, 18)
             }
