@@ -226,6 +226,8 @@ class Typ0sState: ObservableObject {
     enum ProfileMode: Int, CaseIterable { case auto, external, builtIn }
     @Published var playSounds: Bool { didSet { d.set(playSounds, forKey: "sounds") } }
     @Published var appearance: AppearanceMode { didSet { d.set(appearance.rawValue, forKey: "appearance") } }
+    /// Bold fixes more of your messy words; Careful only fixes when the learned model is very sure
+    @Published var fixMode: FixGate.Mode { didSet { d.set(fixMode.rawValue, forKey: "fixMode"); FixGate.mode = fixMode } }
 
     enum AppearanceMode: Int, CaseIterable { case auto, light, dark }
 
@@ -258,6 +260,8 @@ class Typ0sState: ObservableObject {
         }
         playSounds = d.object(forKey: "sounds") as? Bool ?? true
         appearance = AppearanceMode(rawValue: d.integer(forKey: "appearance")) ?? .auto
+        fixMode = FixGate.Mode(rawValue: d.string(forKey: "fixMode") ?? "") ?? .bold
+        FixGate.mode = fixMode
     }
 
     var usingExternalProfile: Bool {
@@ -764,6 +768,15 @@ struct HotkeysTab: View {
                     Toggle("Double-tap Right Shift", isOn: $state.doubleTapRightShiftEnabled)
                     Toggle("Floating pill (menu bar icon otherwise)", isOn: $state.showFloatingPill)
                     Toggle("Sounds", isOn: $state.playSounds)
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Fixing").font(.nm(13)).foregroundColor(.nmInk)
+                            Text(state.fixMode == .bold ? "Fixes more of your messy words" : "Only fixes when it's very sure")
+                                .font(.nm(10)).foregroundColor(.nmMuted)
+                        }
+                        Spacer()
+                        NeuSegmented(options: [(.bold, "Bold"), (.careful, "Careful")], selection: $state.fixMode)
+                    }
                     HStack {
                         Text("Appearance").font(.nm(13)).foregroundColor(.nmInk)
                         Spacer()

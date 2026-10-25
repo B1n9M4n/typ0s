@@ -88,9 +88,22 @@ typ0s watches the keyboard only to notice its hotkeys and ⌘Z. It reads text on
 
 ## How it decides
 
-typ0s ships with an English word list (82,765 words) and a word-pair list (243k pairs), each with how often it's used. For an unknown word it looks at every real word within two keystroke slips, then picks the one that's the cheapest slip on a keyboard (neighbouring keys, swapped keys, a key that didn't register), the most common, and the best fit with the words around it. If it can't tell, it leaves the word alone.
+typ0s ships with an English word list (82,765 words) and a word-pair list (243k pairs), each with how often it's used. For an unknown word it looks at every real word within two keystroke slips and picks the one that's the cheapest slip on a keyboard (neighbouring keys, swapped keys, a key that didn't register), the most common, and the best fit with the words around it.
 
-The `tests/` folder has real typos from freewriting sessions (`real_typos.tsv`), older bugs (`regression.tsv`) and clean text that must never change (`clean_text.txt`).
+Then a small learned model (logistic regression over 11 facts: how many slips, how far ahead of the runner-up, how common the word is, how well it fits its neighbours, whether macOS already knows the typed word, …) estimates the chance the fix is right. **Bold** fixes when that's likely; **Careful** only when it's very likely. Switch between them in settings.
+
+## Training it yourself
+
+Everything is in the repo (except the GitHub typo data, which stays local):
+
+```bash
+swiftc -O FastTypoEngine.swift FixGate.swift WordModel.swift tools/train/main.swift -o build/train
+TYP0S_DICTIONARY=Dictionary build/train eval  data/myslips_test.tsv data/nonword_test.tsv --fix bold    # score
+TYP0S_DICTIONARY=Dictionary build/train learn data/myslips_train.tsv data/nonword_train.tsv               # retrain FixGate.swift
+TYP0S_DICTIONARY=Dictionary build/train search data/myslips_train.tsv data/nonword_train.tsv --limit 1000  # tune the dials
+```
+
+`tools/data/README.md` explains how the training data is made. Train only on `*_train` files and judge on `*_test` files. The `tests/` folder has real typos from freewriting sessions (`real_typos.tsv`), older bugs (`regression.tsv`) and clean text that must never change (`clean_text.txt`).
 
 ## Credits
 

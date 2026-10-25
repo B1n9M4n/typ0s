@@ -226,8 +226,40 @@ enum WrongLayoutFixer {
     }
 }
 
+// MARK: - Tuning
+/// Every number the engine uses to judge a typo, in one place. tools/train.swift searches these
+/// against real typo data; the defaults below are the best values it found.
+struct TypoTuning {
+    // Keyboard slip costs (lower = more likely typo)
+    var neighborKey = 0.48        // hit the key next to the right one
+    var farKeyScale = 0.6         // a far-away key costs distance × this…
+    var farKeyMax = 1.45          // …up to this
+    var bledKey = 0.46            // extra key that sits next to a neighbouring letter ("nbest")
+    var extraKey = 0.67           // any other extra key
+    var missedKey = 0.51          // a key that didn't register
+    var swappedKeys = 0.32        // two keys in the wrong order
+    var swapAcrossBleed = 0.65    // swapped with a bled key in between ("ijk")
+    var lastKeyNotReached = 0.5   // stopped one key short ("whe" -> "when")
+    // Choosing between candidate words
+    var frequencyWeight = 0.3     // prefer common words
+    var contextWeight = 0.1      // prefer words that fit their neighbours
+    var deeperSearchAbove = 0.7   // look further when the best match costs more than this
+    // When to leave a word alone
+    var limitShort = 1.0          // max cost for words of 1-3 letters
+    var limitMid = 1.6            // 4-5 letters
+    var limitLong = 2.2           // 6+ letters
+    var tieCost = 1.0             // a match costing more than this…
+    var tieMargin = 0.14           // …must beat the runner-up by this much
+    var spellcheckerSlip = 0.5    // words macOS knows but our list doesn't: only fix slips cheaper than this
+    // Real word typed as another real word ("form" -> "from"): swap only on overwhelming context
+    var realWordMargin: Float = .infinity   // how much better (log10) the other word must fit; infinity = off
+    var realWordSlipPenalty: Float = 0.7    // subtract slip cost × this from the other word's fit
+}
+
 // MARK: - Typo engine: keyboard-aware edit distance + word frequency + word-pair context
 class FastTypoEngine {
+    static var tuning = TypoTuning()
+
     private let spellChecker = NSSpellChecker.shared
     // True only for real fixes in other apps (not the Test tab), so practice text never teaches typos
     private var learning = false
@@ -340,45 +372,101 @@ class FastTypoEngine {
     }
 
     /// The most likely intended word: cheap keyboard mistakes, a common word, and one that fits its neighbours
-    private func bestCandidate(for word: String, prev: String?, next: String?) -> (word: String, cost: Double)? {
+    /// The best candidate for a misspelled word, plus the facts the learned fix gate looks at
+    struct Candidate {
+        var word: String
+        var cost: Double          // keyboard slip cost from what was typed
+        var score: Double         // cost minus frequency and context bonuses (lower is better)
+        var runnerUpGap: Double   // how far ahead of the second-best word it is
+        var poolSize: Int         // how many real words were within reach
+    }
+
+    private func bestCandidate(for word: String, prev: String?, next: String?) -> Candidate? {
         var pool = candidates(for: word)
         let first = rank(pool, for: word, prev: prev, next: next)
-        if let f = first, f.cost <= 0.7 { return f }
+        if let f = first, f.cost <= Self.tuning.deeperSearchAbove { return f }
         // Nothing very close: also try with one bled-in key removed first ("trhkn" -> "thkn" -> "think")
         guard word.count <= 9 else { return first }
         for skeleton in generateMotorSkeletons(word) { pool.formUnion(candidates(for: skeleton)) }
         return rank(pool, for: word, prev: prev, next: next)
     }
 
-    private func rank(_ pool: Set<String>, for word: String, prev: String?, next: String?) -> (word: String, cost: Double)? {
+    private func rank(_ pool: Set<String>, for word: String, prev: String?, next: String?) -> Candidate? {
         guard !pool.isEmpty else { return nil }
         let model = WordModel.shared
-        var best: (word: String, cost: Double, score: Double)?
+        let t = Self.tuning
+        var best: Candidate?
         var runnerUp = Double.infinity
         for c in pool {
             let target = WordModel.bareContractions[c] ?? c
             let key = target.lowercased()
             var cost = weightedEditDistance(from: word, to: c)
-            if c.count == word.count + 1 && c.hasPrefix(word) { cost = min(cost, 0.5) }   // "whe" -> "when": last key not reached
-            var score = cost - 0.3 * Double(model.logFrequency(key) ?? 5)
-            if let p = prev { score -= 0.15 * Double(model.pairStrength(p, key)) }
-            if let n = next { score -= 0.15 * Double(model.pairStrength(key, n)) }
+            if c.count == word.count + 1 && c.hasPrefix(word) { cost = min(cost, t.lastKeyNotReached) }   // "whe" -> "when"
+            var score = cost - t.frequencyWeight * Double(model.logFrequency(key) ?? 5)
+            if let p = prev { score -= t.contextWeight * Double(model.pairStrength(p, key)) }
+            if let n = next { score -= t.contextWeight * Double(model.pairStrength(key, n)) }
             if best == nil || score < best!.score {
                 if let b = best { runnerUp = b.score }
-                best = (target, cost, score)
+                best = Candidate(word: target, cost: cost, score: score, runnerUpGap: 0, poolSize: pool.count)
             } else if score < runnerUp {
                 runnerUp = score
             }
         }
-        guard let b = best else { return nil }
-        // Not a close match and another word is nearly as likely: we'd be guessing, so don't
-        if b.cost > 1.0 && runnerUp - b.score < 0.3 { return nil }
-        return (b.word, b.cost)
+        guard var b = best else { return nil }
+        b.runnerUpGap = runnerUp.isFinite ? runnerUp - b.score : 3
+        return b
+    }
+
+    /// Hand-written rule (used until the fix gate is trained): a weak match nearly tied with another word is a guess
+    private func isGuess(_ c: Candidate) -> Bool {
+        c.cost > Self.tuning.tieCost && c.runnerUpGap < Self.tuning.tieMargin
+    }
+
+    /// The 11 facts the learned fix gate weighs, for fixing `word` (as typed) to candidate `c`
+    func gateFeatures(_ word: String, _ c: Candidate, prev: String?, next: String?, original: String) -> [Double] {
+        let m = WordModel.shared
+        let key = c.word.lowercased()
+        let length = Double(max(1, word.count))
+        return [
+            c.cost,
+            c.cost / length,
+            min(3, c.runnerUpGap),
+            Double(m.logFrequency(key) ?? 5),
+            Double(prev.map { m.pairStrength($0, key) } ?? 0),
+            Double(next.map { m.pairStrength(key, $0) } ?? 0),
+            length,
+            log2(Double(c.poolSize) + 1),
+            spellCheckerKnows(original) ? 1 : 0,
+            original.first?.isUppercase == true ? 1 : 0,
+            WordModel.contractions.contains(key) ? 1 : 0,
+        ]
+    }
+
+    /// For training: the best candidate for a typed word and the gate's facts about it (nil if no candidate)
+    func gateExample(_ typed: String, prev: String?, next: String?) -> (candidate: String, features: [Double])? {
+        let word = typed.lowercased()
+        guard let c = bestCandidate(for: word, prev: prev, next: next) else { return nil }
+        return (c.word.lowercased(), gateFeatures(word, c, prev: prev, next: next, original: typed))
+    }
+
+    /// For training/diagnostics: why a misspelled word did or didn't become `target`
+    func diagnose(_ word: String, target: String, prev: String?, next: String?) -> String {
+        let w = word.lowercased()
+        var pool = candidates(for: w)
+        let reach1 = pool.contains(target) || WordModel.bareContractions.first(where: { $0.value == target })
+            .map { pool.contains($0.key) } == true
+        if !reach1 { for s in generateMotorSkeletons(w) { pool.formUnion(candidates(for: s)) } }
+        if !pool.contains(target) { return "unreachable" }
+        guard let best = bestCandidate(for: w, prev: prev, next: next), !isGuess(best) else { return "abstained (tie)" }
+        if best.word.lowercased() != target { return "chose wrong word" }
+        if best.cost > costLimit(w.count) { return "over cost limit" }
+        return "ok"
     }
 
     /// How many keystroke mistakes we accept for a word of this length
     private func costLimit(_ length: Int) -> Double {
-        length <= 3 ? 1.0 : (length <= 5 ? 1.6 : 2.2)
+        let t = Self.tuning
+        return length <= 3 ? t.limitShort : (length <= 5 ? t.limitMid : t.limitLong)
     }
 
     func qwertyKeyDistance(_ c1: Character, _ c2: Character) -> Double {
@@ -389,7 +477,8 @@ class FastTypoEngine {
         let dx = p1.0 - p2.0
         let dy = p1.1 - p2.1
         let dist = sqrt(dx * dx + dy * dy)
-        return dist <= 1.35 ? 0.42 : min(dist * 0.6, 1.45)
+        let t = Self.tuning
+        return dist <= 1.35 ? t.neighborKey : min(dist * t.farKeyScale, t.farKeyMax)
     }
     
     func weightedEditDistance(from source: String, to target: String) -> Double {
@@ -404,13 +493,14 @@ class FastTypoEngine {
         func delCost(_ i: Int) -> Double {
             if (i > 1 && qwertyKeyDistance(s[i - 1], s[i - 2]) <= 0.55) ||
                (i < m && qwertyKeyDistance(s[i - 1], s[i]) <= 0.55) {
-                return 0.40 // Adjacent key-bleed (like 'n' in 'nlife', 'w' in 'tewrm', 'y' in 'uyse', 'j' in 'maijkng')
+                return Self.tuning.bledKey // Adjacent key-bleed (like 'n' in 'nlife', 'w' in 'tewrm', 'y' in 'uyse')
             }
-            return 0.95
+            return Self.tuning.extraKey
         }
         var dp = Array(repeating: Array(repeating: 0.0, count: n + 1), count: m + 1)
         for i in 1...m { dp[i][0] = dp[i - 1][0] + delCost(i) }   // leading bleed ("nbewt") is as cheap as anywhere else
-        for j in 1...n { dp[0][j] = Double(j) * 0.65 }
+        let missed = Self.tuning.missedKey
+        for j in 1...n { dp[0][j] = Double(j) * missed }
 
         for i in 1...m {
             for j in 1...n {
@@ -419,17 +509,17 @@ class FastTypoEngine {
                 
                 dp[i][j] = min(
                     dp[i - 1][j] + delCost,
-                    dp[i][j - 1] + 0.65,   // a key that didn't register (very common when typing fast)
+                    dp[i][j - 1] + missed,   // a key that didn't register (very common when typing fast)
                     dp[i - 1][j - 1] + subCost
                 )
                 
                 // Transposition (e.g. 'ik' -> 'ki' in 'maijkng' -> 'making', 'el' -> 'le' in 'uselful')
                 if i > 1 && j > 1 && s[i - 1] == t[j - 2] && s[i - 2] == t[j - 1] {
-                    dp[i][j] = min(dp[i][j], dp[i - 2][j - 2] + 0.38)
+                    dp[i][j] = min(dp[i][j], dp[i - 2][j - 2] + Self.tuning.swappedKeys)
                 }
                 // Transposition across 1 neighbor bleed char (e.g. 'ijk' where 'j' bled between 'i' and 'k'!)
                 if i > 2 && j > 1 && s[i - 1] == t[j - 2] && s[i - 3] == t[j - 1] {
-                    dp[i][j] = min(dp[i][j], dp[i - 3][j - 2] + 0.65)
+                    dp[i][j] = min(dp[i][j], dp[i - 3][j - 2] + Self.tuning.swapAcrossBleed)
                 }
             }
         }
@@ -496,11 +586,19 @@ class FastTypoEngine {
             if learning { _ = UserDictionaryStore.shared.noteUnknownWord(letters) }
             return rawWord
         }
-        // Words macOS knows but our list doesn't (rare words, names): only fix tiny slips
-        if WordModel.shared.isLoaded && best.cost > 0.5 && spellCheckerKnows(letters) { return rawWord }
+        let safe: Bool
+        if FixGate.isTrained {
+            // The learned gate: fix only if the chance this fix is right clears the Bold / Careful bar
+            let p = FixGate.probability(gateFeatures(word, best, prev: prev, next: next, original: letters))
+            safe = p >= FixGate.threshold && best.cost <= 3.0
+        } else {
+            // Hand-written rules: macOS knows it (rare word, name), a near-tie, or too many slips -> leave it
+            let macKnows = WordModel.shared.isLoaded && best.cost > Self.tuning.spellcheckerSlip && spellCheckerKnows(letters)
+            safe = !macKnows && !isGuess(best) && best.cost <= costLimit(word.count)
+        }
         // A weak match is probably a word we don't know (slang, a name): count it, stop "fixing" it once seen enough
-        if best.cost > confidentTypoScore && learning && UserDictionaryStore.shared.noteUnknownWord(letters) { return rawWord }
-        guard best.cost <= costLimit(word.count) else { return rawWord }
+        if (!safe || best.cost > confidentTypoScore) && learning && UserDictionaryStore.shared.noteUnknownWord(letters) { return rawWord }
+        guard safe else { return rawWord }
         if learning && best.cost <= confidentTypoScore && best.word.lowercased() != lower {
             confidentFixes[lower] = best.word.lowercased()
         }
@@ -551,11 +649,61 @@ class FastTypoEngine {
         return UserDictionaryStore.shared.customRules.contains { !$0.typo.isEmpty && $0.typo == lower }
     }
 
+    // MARK: Real word typed as another real word
+
+    /// One typing slip apart: a neighbour key, two swapped keys, or a doubled / bled / dropped key.
+    /// Word endings (plural, -ed, -al) don't count: that's grammar, not a slip.
+    private func isKeyboardSlip(_ x: String, _ y: String) -> Bool {
+        if x.hasPrefix(y) || y.hasPrefix(x) { return false }
+        let a = Array(x), b = Array(y)
+        if a.count == b.count {
+            let d = (0..<a.count).filter { a[$0] != b[$0] }
+            if d.count == 1 { return qwertyKeyDistance(a[d[0]], b[d[0]]) <= 0.55 }
+            if d.count == 2 && d[1] == d[0] + 1 { return a[d[0]] == b[d[1]] && a[d[1]] == b[d[0]] }
+            return false
+        }
+        guard abs(a.count - b.count) == 1 else { return false }
+        let (long, short) = a.count > b.count ? (a, b) : (b, a)
+        for i in 0..<long.count {
+            var rest = long; rest.remove(at: i)
+            if rest == short {
+                let neighbours = [i - 1, i + 1].filter { $0 >= 0 && $0 < long.count }.map { long[$0] }
+                return neighbours.contains { $0 == long[i] || qwertyKeyDistance($0, long[i]) <= 0.55 }
+            }
+        }
+        return false
+    }
+
+    /// How well a word fits between its neighbours (log10 pair counts; unseen pairs estimated
+    /// from how common each word is on its own, minus a penalty for never being seen together)
+    private func fit(_ w: String, prev: String, next: String) -> Float {
+        let m = WordModel.shared
+        let lw = m.logFrequency(w) ?? 3
+        let left = m.pairLog(prev, w) ?? ((m.logFrequency(prev) ?? 3) + lw - 13)
+        let right = m.pairLog(w, next) ?? (lw + (m.logFrequency(next) ?? 3) - 13)
+        return left + right
+    }
+
+    /// "form" -> "from", "beast" -> "best": only when the other word fits its neighbours overwhelmingly better
+    private func realWordFix(_ word: String, prev: String?, next: String?) -> String? {
+        let t = Self.tuning
+        guard t.realWordMargin.isFinite, let p = prev, let n = next,
+              (2...10).contains(word.count), word.allSatisfy({ $0.isLetter }) else { return nil }
+        let model = WordModel.shared
+        let current = fit(word, prev: p, next: n)
+        var best: (word: String, fit: Float)?
+        for c in Set(edits1(Array(word))) where c != word && model.contains(c) && isKeyboardSlip(word, c) {
+            let f = fit(c, prev: p, next: n) - Float(weightedEditDistance(from: word, to: c)) * t.realWordSlipPenalty
+            if f > current + t.realWordMargin && (best == nil || f > best!.fit) { best = (c, f) }
+        }
+        return best?.word
+    }
+
     /// A close real word for a joined fragment ("thnk" -> "think"), or nil
-    private func closeFix(_ word: String) -> String? {
+    private func closeFix(_ word: String, prev: String? = nil, next: String? = nil) -> String? {
         let lower = word.lowercased()
         if isValidWord(lower) { return word }
-        guard let best = bestCandidate(for: lower, prev: nil, next: nil), best.cost <= 1.0 else { return nil }
+        guard let best = bestCandidate(for: lower, prev: prev, next: next), best.cost <= 1.0, !isGuess(best) else { return nil }
         return best.word
     }
 
@@ -573,8 +721,12 @@ class FastTypoEngine {
                 let t2 = tokens[i + 1]
                 let w1 = t1.core
                 let w2 = t2.core
-                let eligible = t1.suf.isEmpty && t2.pre.isEmpty && !w1.isEmpty && !w2.isEmpty
+                // Capitals mean names, variables or languages ("X is", "in C mode"): never glue those.
+                // Only the usual capital at the start of the first word is allowed ("Thn k").
+                let eligible = t1.suf.isEmpty && t2.pre.isEmpty && w1.count + w2.count > 2
                     && w1.allSatisfy({ $0.isLetter }) && w2.allSatisfy({ $0.isLetter })
+                    && w1.dropFirst().allSatisfy({ $0.isLowercase }) && w2.allSatisfy({ $0.isLowercase })
+                    && !(w1.count == 1 && w1.first!.isUppercase)
                     && !hasKnownFix(w1) && !hasKnownFix(w2)
 
                 if eligible {
@@ -585,7 +737,24 @@ class FastTypoEngine {
                     // Only glue onto a real word if the result is exactly a word ("the b" stays apart).
                     if orphan1 || orphan2 || (!k1 && !k2) {
                         let joinedWord = w1 + w2
-                        let fixed: String? = isValidWord(joinedWord) ? joinedWord : ((k1 || k2) ? nil : closeFix(joinedWord))
+                        // The words around the pair tell "I thn k the" (think) from "thank"
+                        let before = result.last.map { $0.core.lowercased() }.flatMap { isValidWord($0) ? $0 : nil }
+                        let after = i + 2 < tokens.count ? tokens[i + 2].core.lowercased() : nil
+                        var fixed: String? = isValidWord(joinedWord) ? joinedWord
+                            : ((k1 || k2) ? nil : closeFix(joinedWord, prev: before, next: after.flatMap { isValidWord($0) ? $0 : nil }))
+                        // A stray letter that makes an exact word with the NEXT word belongs there ("multipel p urposes")
+                        if orphan2, let left = fixed, i + 2 < tokens.count, tokens[i + 1].suf.isEmpty, tokens[i + 2].pre.isEmpty,
+                           isValidWord(w2 + tokens[i + 2].core), !isValidWord(joinedWord) {
+                            let rightFreq = model.logFrequency((w2 + tokens[i + 2].core).lowercased()) ?? 0
+                            let leftFreq = model.logFrequency(left.lowercased()) ?? 0
+                            if rightFreq >= leftFreq - 1 { fixed = nil }   // "gand" is too rare to beat "anything"
+                        }
+                        // Gluing a stray letter onto a correct word must not turn it into a rarer word ("in k" -> "ink")
+                        if let f = fixed, k1 || k2 {
+                            let base = (k1 ? w1 : w2).lowercased()
+                            let fl = model.logFrequency(f.lowercased()) ?? 0, bl = model.logFrequency(base) ?? 0
+                            if fl < bl - 1.5 { fixed = nil }
+                        }
                         if let fixed {
                             result.append(Token(pre: t1.pre, core: fixed, suf: t2.suf))
                             i += 2
@@ -717,6 +886,10 @@ class FastTypoEngine {
                     let memoKey = "\(prevWord ?? "")|\(raw)|\(next ?? "")|\(sentenceStart)"
                     if let cached = memo[memoKey] { w = cached } else {
                         w = fixSingleWord(raw, prev: prevWord, next: next, sentenceStart: sentenceStart)
+                        // Spelled right but maybe the wrong word: check it against its neighbours
+                        if w == raw, isValidWord(raw), let alt = realWordFix(raw.lowercased(), prev: prevWord, next: next) {
+                            w = preserveCase(original: raw, corrected: alt)
+                        }
                         memo[memoKey] = w
                     }
                     prevWord = w.lowercased().replacingOccurrences(of: "’", with: "'")

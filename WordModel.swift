@@ -70,6 +70,9 @@ final class WordModel {
     /// log10 frequency, or nil for words not in the list
     func logFrequency(_ word: String) -> Float? { words[word] }
 
+    /// log10 count of a word pair, or nil if the pair isn't in the list
+    func pairLog(_ first: String, _ second: String) -> Float? { pairs[Self.hash(first + " " + second)] }
+
     /// How strongly two words go together (0 when the pair is unknown or rare)
     func pairStrength(_ first: String, _ second: String) -> Float {
         guard let f = pairs[Self.hash(first + " " + second)] else { return 0 }
