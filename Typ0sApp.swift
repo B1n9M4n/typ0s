@@ -41,7 +41,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         checkAccessibilityPermissions()
         setupEventTap()
         keyboardMonitor.startMonitoring()
-        openSettingsWindow() // Show settings dashboard on launch so user sees it right away!
+        // Stay out of the way: only show settings the first time, or when macOS permission is missing
+        let d = UserDefaults.standard
+        if !d.bool(forKey: "hasLaunchedBefore") || !state.accessibilityGranted { openSettingsWindow() }
+        d.set(true, forKey: "hasLaunchedBefore")
         
         state.$showFloatingPill
             .receive(on: RunLoop.main)
