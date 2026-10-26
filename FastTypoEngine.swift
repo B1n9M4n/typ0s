@@ -244,6 +244,8 @@ struct TypoTuning {
     var frequencyWeight = 0.3     // prefer common words
     var contextWeight = 0.1      // prefer words that fit their neighbours
     var deeperSearchAbove = 0.7   // look further when the best match costs more than this
+    var deepSearchAbove = 1.2     // search three slips deep when the best match still costs more than this…
+    var deepSearchMinLength = 6   // …and the word has at least this many letters
     // When to leave a word alone
     var limitShort = 1.0          // max cost for words of 1-3 letters
     var limitMid = 1.6            // 4-5 letters
@@ -371,6 +373,28 @@ class FastTypoEngine {
         return found
     }
 
+    /// Dropped or swapped keys: the cheap first steps of a slip search
+    private func dropsAndSwaps(_ word: String) -> Set<String> {
+        let w = Array(word)
+        var out = Set<String>()
+        for i in 0..<w.count { var c = w; c.remove(at: i); out.insert(String(c)) }
+        if w.count > 1 { for i in 0..<(w.count - 1) where w[i] != w[i + 1] { var c = w; c.swapAt(i, i + 1); out.insert(String(c)) } }
+        return out
+    }
+
+    /// Three slips deep, for long messy words ("snythinig", "probsbiligy"): two drops/swaps, then any one edit.
+    /// Slow (tens of thousands of lookups), so only used when nothing within two slips fits.
+    private func candidates3(for word: String) -> Set<String> {
+        var found = Set<String>()
+        var seen = Set<String>()
+        for first in dropsAndSwaps(word) {
+            for second in dropsAndSwaps(first) where seen.insert(second).inserted {
+                for e in edits1(Array(second)) where isCandidateWord(e) { found.insert(e) }
+            }
+        }
+        return found
+    }
+
     /// The most likely intended word: cheap keyboard mistakes, a common word, and one that fits its neighbours
     /// The best candidate for a misspelled word, plus the facts the learned fix gate looks at
     struct Candidate {
@@ -386,8 +410,13 @@ class FastTypoEngine {
         let first = rank(pool, for: word, prev: prev, next: next)
         if let f = first, f.cost <= Self.tuning.deeperSearchAbove { return f }
         // Nothing very close: also try with one bled-in key removed first ("trhkn" -> "thkn" -> "think")
-        guard word.count <= 9 else { return first }
-        for skeleton in generateMotorSkeletons(word) { pool.formUnion(candidates(for: skeleton)) }
+        if word.count <= 9 {
+            for skeleton in generateMotorSkeletons(word) { pool.formUnion(candidates(for: skeleton)) }
+        }
+        let second = rank(pool, for: word, prev: prev, next: next)
+        // Still nothing good for a long word: search three slips deep
+        guard word.count >= Self.tuning.deepSearchMinLength, (second?.cost ?? .infinity) > Self.tuning.deepSearchAbove else { return second }
+        pool.formUnion(candidates3(for: word))
         return rank(pool, for: word, prev: prev, next: next)
     }
 
@@ -402,9 +431,14 @@ class FastTypoEngine {
             let key = target.lowercased()
             var cost = weightedEditDistance(from: word, to: c)
             if c.count == word.count + 1 && c.hasPrefix(word) { cost = min(cost, t.lastKeyNotReached) }   // "whe" -> "when"
-            var score = cost - t.frequencyWeight * Double(model.logFrequency(key) ?? 5)
-            if let p = prev { score -= t.contextWeight * Double(model.pairStrength(p, key)) }
-            if let n = next { score -= t.contextWeight * Double(model.pairStrength(key, n)) }
+            var score: Double
+            if RankModel.isTrained {
+                score = -RankModel.score(rankFeatures(word, c, key: key, cost: cost, prev: prev, next: next))   // lower is better
+            } else {
+                score = cost - t.frequencyWeight * Double(model.logFrequency(key) ?? 5)
+                if let p = prev { score -= t.contextWeight * Double(model.pairStrength(p, key)) }
+                if let n = next { score -= t.contextWeight * Double(model.pairStrength(key, n)) }
+            }
             if best == nil || score < best!.score {
                 if let b = best { runnerUp = b.score }
                 best = Candidate(word: target, cost: cost, score: score, runnerUpGap: 0, poolSize: pool.count)
@@ -415,6 +449,40 @@ class FastTypoEngine {
         guard var b = best else { return nil }
         b.runnerUpGap = runnerUp.isFinite ? runnerUp - b.score : 3
         return b
+    }
+
+    /// The 9 facts the learned ranker weighs for candidate `c` (spelled as found, `key` = the word it stands for)
+    func rankFeatures(_ word: String, _ c: String, key: String, cost: Double, prev: String?, next: String?) -> [Double] {
+        let m = WordModel.shared
+        return [
+            cost,
+            Double(m.logFrequency(key) ?? 5),
+            Double(prev.map { m.pairStrength($0, key) } ?? 0),
+            Double(next.map { m.pairStrength(key, $0) } ?? 0),
+            Double(abs(c.count - word.count)),
+            c.first == word.first ? 1 : 0,
+            c.last == word.last ? 1 : 0,
+            c.count == word.count + 1 && c.hasPrefix(word) ? 1 : 0,
+            WordModel.contractions.contains(key) ? 1 : 0,
+        ]
+    }
+
+    /// For training the ranker: every candidate within reach of a typed word, with its facts
+    func rankExample(_ typed: String, gold: String, prev: String?, next: String?) -> (keys: [String], features: [[Double]])? {
+        let word = typed.lowercased()
+        var pool = candidates(for: word)
+        if word.count <= 9 { for skeleton in generateMotorSkeletons(word) { pool.formUnion(candidates(for: skeleton)) } }
+        func has(_ p: Set<String>) -> Bool { p.contains { (WordModel.bareContractions[$0] ?? $0).lowercased() == gold } }
+        if !has(pool) && word.count >= Self.tuning.deepSearchMinLength { pool.formUnion(candidates3(for: word)) }
+        guard pool.count >= 2, has(pool) else { return nil }
+        var keys: [String] = [], feats: [[Double]] = []
+        for c in pool {
+            let key = (WordModel.bareContractions[c] ?? c).lowercased()
+            var cost = weightedEditDistance(from: word, to: c)
+            if c.count == word.count + 1 && c.hasPrefix(word) { cost = min(cost, Self.tuning.lastKeyNotReached) }
+            keys.append(key); feats.append(rankFeatures(word, c, key: key, cost: cost, prev: prev, next: next))
+        }
+        return (keys, feats)
     }
 
     /// Hand-written rule (used until the fix gate is trained): a weak match nearly tied with another word is a guess

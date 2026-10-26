@@ -90,16 +90,17 @@ typ0s watches the keyboard only to notice its hotkeys and ⌘Z. It reads text on
 
 typ0s ships with an English word list (82,765 words) and a word-pair list (243k pairs), each with how often it's used. For an unknown word it looks at every real word within two keystroke slips and picks the one that's the cheapest slip on a keyboard (neighbouring keys, swapped keys, a key that didn't register), the most common, and the best fit with the words around it.
 
-Then a small learned model (logistic regression over 11 facts: how many slips, how far ahead of the runner-up, how common the word is, how well it fits its neighbours, whether macOS already knows the typed word, …) estimates the chance the fix is right. **Bold** fixes when that's likely; **Careful** only when it's very likely. Switch between them in settings.
+Which word wins is decided by a learned ranker (softmax over 9 facts: slip cost, how common the word is, fit with the words around it, matching first and last letters, …), trained on ~12,000 real and generated typos. Then a second small learned model (logistic regression over 11 facts: how many slips, how far ahead of the runner-up, how common the word is, how well it fits its neighbours, whether macOS already knows the typed word, …) estimates the chance the fix is right. **Bold** fixes when that's likely; **Careful** only when it's very likely. Switch between them in settings.
 
 ## Training it yourself
 
 Everything is in the repo (except the GitHub typo data, which stays local):
 
 ```bash
-swiftc -O FastTypoEngine.swift FixGate.swift WordModel.swift tools/train/main.swift -o build/train
+swiftc -O FastTypoEngine.swift FixGate.swift RankModel.swift WordModel.swift tools/train/main.swift -o build/train
 TYP0S_DICTIONARY=Dictionary build/train eval  data/myslips_test.tsv data/nonword_test.tsv --fix bold    # score
-TYP0S_DICTIONARY=Dictionary build/train learn data/myslips_train.tsv data/nonword_train.tsv               # retrain FixGate.swift
+TYP0S_DICTIONARY=Dictionary build/train learn-rank data/myslips_train.tsv data/nonword_train.tsv          # retrain RankModel.swift (which word)
+TYP0S_DICTIONARY=Dictionary build/train learn data/myslips_train.tsv data/nonword_train.tsv               # retrain FixGate.swift (fix or leave)
 TYP0S_DICTIONARY=Dictionary build/train search data/myslips_train.tsv data/nonword_train.tsv --limit 1000  # tune the dials
 ```
 

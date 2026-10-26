@@ -5,6 +5,8 @@
 // Tune:   TYP0S_DICTIONARY=Dictionary build/train search <data.tsv>... [--limit N]   (hill-climb the TypoTuning dials)
 // Learn:  TYP0S_DICTIONARY=Dictionary build/train learn  <data.tsv>... [--out FixGate.swift]
 //         (logistic regression that decides when a fix is safe; writes FixGate.swift)
+// Rank:   TYP0S_DICTIONARY=Dictionary build/train learn-rank <data.tsv>... [--out RankModel.swift]
+//         (softmax ranker that picks which word you meant; writes RankModel.swift. Retrain the gate after.)
 //
 // Use several kinds of data together: slips like yours (data/myslips_*.tsv), real misspellings
 // (data/nonword_*.tsv) and real words typed as other real words (data/realslip_*.tsv).
@@ -155,7 +157,7 @@ func learnGate(_ sets: [[(String, String)]], out: String) {
         }
         return best
     }
-    let bold = pick(wrongCost: 1, cleanCost: 2), careful = pick(wrongCost: 2, cleanCost: 4)
+    let bold = pick(wrongCost: 1, cleanCost: 2), careful = pick(wrongCost: 4, cleanCost: 8)   // Careful: a wrong fix costs 4 right ones
     let rights = valIdx.filter { y[$0] == 1 }.count
     print(String(format: "Bold    cut-off %.2f: fixes %d of %d right fixes, %d wrong fixes, %d correct words touched", bold.0, bold.1, rights, bold.2, bold.3))
     print(String(format: "Careful cut-off %.2f: fixes %d of %d right fixes, %d wrong fixes, %d correct words touched", careful.0, careful.1, rights, careful.2, careful.3))
@@ -191,6 +193,100 @@ func learnGate(_ sets: [[(String, String)]], out: String) {
             var z = bias
             for i in 0..<weights.count { z += weights[i] * (x[i] - mean[i]) / scale[i] }
             return 1 / (1 + exp(-z))
+        }
+    }
+
+    """
+    try! file.write(toFile: out, atomically: true, encoding: .utf8)
+    print("wrote \(out)")
+}
+
+// MARK: - Learning the ranker (softmax over candidates)
+
+func learnRanker(_ sets: [[(String, String)]], out: String) {
+    RankModel.forceOff = true
+    FixGate.forceOff = true
+    let engine = FastTypoEngine()
+    var examples: [(gold: Int, feats: [[Double]])] = []
+    for rows in sets {
+        for (typedSentence, goldSentence) in rows {
+            let a = typedSentence.split(separator: " "), b = goldSentence.split(separator: " ")
+            guard a.count == b.count else { continue }
+            let gold = b.map(letters)
+            func ctx(_ j: Int) -> String? { (0..<gold.count).contains(j) && engine.isValidWord(gold[j]) ? gold[j].lowercased() : nil }
+            for i in 0..<a.count {
+                let typed = letters(a[i]), want = gold[i].lowercased()
+                guard !typed.isEmpty, typed.lowercased() != want, typed.allSatisfy({ $0.isLetter || $0 == "'" }),
+                      !engine.isValidWord(typed),
+                      let ex = engine.rankExample(typed, gold: want, prev: ctx(i - 1), next: ctx(i + 1)),
+                      let g = ex.keys.firstIndex(of: want) else { continue }
+                examples.append((g, ex.features))
+            }
+        }
+    }
+    let d = examples.first?.feats.first?.count ?? 0
+    print("ranking examples: \(examples.count) typos, \(examples.map { $0.feats.count }.reduce(0, +)) candidates")
+    // Standardise each fact over all candidates
+    var mean = [Double](repeating: 0, count: d), scale = [Double](repeating: 1, count: d), count = 0.0
+    for ex in examples { for f in ex.feats { count += 1; for j in 0..<d { mean[j] += f[j] } } }
+    for j in 0..<d { mean[j] /= count }
+    for j in 0..<d {
+        var v = 0.0
+        for ex in examples { for f in ex.feats { v += (f[j] - mean[j]) * (f[j] - mean[j]) } }
+        v /= count; scale[j] = v > 1e-9 ? sqrt(v) : 1
+    }
+    let Z = examples.map { ex in (ex.gold, ex.feats.map { f in (0..<d).map { (f[$0] - mean[$0]) / scale[$0] } }) }
+    let trainZ = Z.enumerated().filter { $0.offset % 5 != 0 }.map { $0.element }
+    let valZ = Z.enumerated().filter { $0.offset % 5 == 0 }.map { $0.element }
+    func top1(_ w: [Double], _ data: [(Int, [[Double]])]) -> Double {
+        var right = 0
+        for (g, fs) in data {
+            let scores = fs.map { f in (0..<d).map { w[$0] * f[$0] }.reduce(0, +) }
+            if scores.indices.max(by: { scores[$0] < scores[$1] }) == g { right += 1 }
+        }
+        return Double(right) / Double(max(1, data.count))
+    }
+    // Start from the hand formula's shape (cheap slip, common word, good context), then learn
+    var w = [Double](repeating: 0, count: d)
+    w[0] = -1; w[1] = 0.3; w[2] = 0.1; w[3] = 0.1
+    print(String(format: "hand-shaped start: picks the right word %.1f%% of the time (held-back)", top1(w, valZ) * 100))
+    for step in 1...300 {
+        var grad = [Double](repeating: 0, count: d)
+        for (g, fs) in trainZ {
+            let scores = fs.map { f in (0..<d).map { w[$0] * f[$0] }.reduce(0, +) }
+            let mx = scores.max()!
+            let ex = scores.map { exp($0 - mx) }, sum = ex.reduce(0, +)
+            for (k, f) in fs.enumerated() {
+                let p = ex[k] / sum
+                for j in 0..<d { grad[j] += ((k == g ? 1 : 0) - p) * f[j] }
+            }
+        }
+        for j in 0..<d { w[j] += 0.5 * (grad[j] / Double(trainZ.count) - 0.001 * w[j]) }
+        if step % 100 == 0 { print(String(format: "  step %d  picks right word %.1f%% (train) %.1f%% (held-back)", step, top1(w, trainZ) * 100, top1(w, valZ) * 100)) }
+    }
+    let names = ["slip cost", "word frequency", "fits left word", "fits right word", "length change",
+                 "same first letter", "same last letter", "stopped one key short", "contraction"]
+    print("Learned weights (bigger = more likely the intended word):")
+    for j in 0..<d { print(String(format: "  %+.3f  %@", w[j], names[j] as NSString)) }
+    let fmt = { (a: [Double]) in a.map { String(format: "%.6f", $0) }.joined(separator: ", ") }
+    let file = """
+    import Foundation
+
+    /// Learned "which word did you mean?" model: a score for each candidate word (higher = more likely),
+    /// from 9 facts about it. Generated by `tools/train learn-rank`. Don't edit by hand; retrain instead.
+    /// Facts, in order: \(names.joined(separator: ", ")).
+    enum RankModel {
+        static var forceOff = false   // training/testing: use the hand-written formula instead
+        static var isTrained: Bool { !weights.isEmpty && !forceOff }
+
+        static let mean: [Double] = [\(fmt(mean))]
+        static let scale: [Double] = [\(fmt(scale))]
+        static let weights: [Double] = [\(fmt(w))]
+
+        static func score(_ x: [Double]) -> Double {
+            var z = 0.0
+            for i in 0..<weights.count { z += weights[i] * (x[i] - mean[i]) / scale[i] }
+            return z
         }
     }
 
@@ -240,6 +336,7 @@ let files = Array(args.dropFirst())
 let sets = files.map { load($0, limit: limit) }
 
 if mode == "learn" { learnGate(sets, out: outPath); exit(0) }
+if mode == "learn-rank" { learnRanker(sets, out: outPath == "FixGate.swift" ? "RankModel.swift" : outPath); exit(0) }
 
 if mode == "eval" {
     let (total, parts) = evaluate(sets)
