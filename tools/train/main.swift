@@ -329,6 +329,7 @@ if let i = args.firstIndex(of: "--fix"), i + 1 < args.count {
     }
     args.removeSubrange(i...(i + 1))
 }
+if let i = args.firstIndex(of: "--no-grammar") { FastTypoEngine.grammarEnabled = false; args.remove(at: i) }
 var outPath = "FixGate.swift"
 if let i = args.firstIndex(of: "--out"), i + 1 < args.count { outPath = args[i + 1]; args.removeSubrange(i...(i + 1)) }
 let mode = args[0]

@@ -261,6 +261,8 @@ struct TypoTuning {
 // MARK: - Typo engine: keyboard-aware edit distance + word frequency + word-pair context
 class FastTypoEngine {
     static var tuning = TypoTuning()
+    /// Light grammar and accidental punctuation fixes (settings: "Light grammar")
+    static var grammarEnabled = true
 
     private let spellChecker = NSSpellChecker.shared
     // True only for real fixes in other apps (not the Test tab), so practice text never teaches typos
@@ -302,7 +304,7 @@ class FastTypoEngine {
         "seperate": "separate", "occured": "occurred", "untill": "until", "runing": "running",
         "espically": "especially", "somoene": "someone", "autometically": "automatically",
         "dont": "don't", "doesnt": "doesn't", "didnt": "didn't", "im": "I'm", "ive": "I've",
-        "foward": "forward", "fowards": "forwards"
+        "foward": "forward", "fowards": "forwards", "alot": "a lot"
     ]
     
     // Deduplicate adjacent identical or neighbor-bleed letters to generate strong phonetic/motor stems
@@ -717,6 +719,78 @@ class FastTypoEngine {
         return UserDictionaryStore.shared.customRules.contains { !$0.typo.isEmpty && $0.typo == lower }
     }
 
+    // MARK: Light grammar and accidental punctuation
+
+    /// Spaces before punctuation, mixed or doubled marks, and a period before a stray letter
+    func tidyPunctuation(_ line: String) -> String {
+        var l = line
+        let rules: [(String, String)] = [
+            (#"(?<=\S)\s+([,.;:!?])(?=\s|$)"#, "$1"),          // "good ." -> "good."  "wait , what" -> "wait, what"
+            (#"[,;:]\.(?!\.)"#, "."),                           // "fine,." -> "fine."
+            (#",{2,}"#, ","),                                    // ",," -> ","
+            (#"(\p{L})\. ([b-hj-z])(?= |$)"#, "$1 $2"),         // "anythin. g and" -> "anythin g and" (then joined)
+        ]
+        for (pattern, template) in rules {
+            l = l.replacingOccurrences(of: pattern, with: template, options: .regularExpression)
+        }
+        return l
+    }
+
+    /// A short fragment ending in "." followed by a lowercase word that strongly belongs with it
+    /// ("I think. the") is a slip. Measured by how much more often the two words go together than chance (PMI).
+    private func isAccidentalPeriod(after word: String, next: Token, wordsSoFar: Int) -> Bool {
+        let a = word.lowercased(), b = next.core.lowercased()
+        guard wordsSoFar <= 3, next.pre.isEmpty, let first = next.core.first, first.isLowercase,
+              isValidWord(a), isValidWord(b) else { return false }
+        let m = WordModel.shared
+        guard let pair = m.pairLog(a, b), let fa = m.logFrequency(a), let fb = m.logFrequency(b) else { return false }
+        return pair - fa - fb + 12 >= 1.8
+    }
+
+    /// Does this word start with a vowel sound ("an hour", "a university")?
+    private func startsWithVowelSound(_ word: String) -> Bool {
+        let w = word.lowercased()
+        if ["hour", "honest", "honor", "honour", "heir"].contains(where: { w.hasPrefix($0) }) { return true }
+        if ["uni", "use", "usu", "ute", "uti", "uro", "one", "once", "eu", "ewe", "ufo", "ubi"].contains(where: { w.hasPrefix($0) }) { return false }
+        return w.first.map { "aeiou".contains($0) } ?? false
+    }
+
+    /// a/an, doubled words ("the the"), "could of" -> "could have". Only near-certain rules.
+    func lightGrammar(_ tokens: [Token]) -> [Token] {
+        var out: [Token] = []
+        let keepDoubled: Set<String> = ["had", "that", "is", "do", "very", "so", "really", "no", "yes", "ha", "bye", "blah",
+                                        "many", "far", "again", "more", "long", "much", "bang", "knock", "well"]
+        let notNouns: Set<String> = ["and", "or", "is", "as", "if", "in", "of", "on", "at", "it", "an", "a", "the", "to"]
+        for (i, token) in tokens.enumerated() {
+            var t = token
+            let lower = t.core.lowercased()
+            // Doubled word: drop the second copy, keep its punctuation
+            if let prev = out.last, prev.suf.isEmpty, t.pre.isEmpty, !lower.isEmpty,
+               prev.core.lowercased() == lower, lower.allSatisfy({ $0.isLetter }), !keepDoubled.contains(lower) {
+                out[out.count - 1].suf = t.suf
+                continue
+            }
+            // "could of" -> "could have"
+            if lower == "of", let prev = out.last, prev.suf.isEmpty,
+               ["could", "should", "would", "must", "might"].contains(prev.core.lowercased()) {
+                t.core = "have"
+            }
+            // a / an before the next word's sound
+            if (lower == "a" || lower == "an"), t.suf.isEmpty, i + 1 < tokens.count {
+                let next = tokens[i + 1]
+                let nl = next.core.lowercased()
+                // Skip words said letter by letter (no vowel: "rpm", "sql")
+                if next.pre.isEmpty, next.core == nl, isValidWord(nl), nl.count > 1, !notNouns.contains(nl),
+                   nl.contains(where: { "aeiouy".contains($0) }) {
+                    let want = startsWithVowelSound(nl) ? "an" : "a"
+                    if lower != want { t.core = t.core.first!.isUppercase ? want.capitalized : want }
+                }
+            }
+            out.append(t)
+        }
+        return out
+    }
+
     // MARK: Real word typed as another real word
 
     /// One typing slip apart: a neighbour key, two swapped keys, or a doubled / bled / dropped key.
@@ -908,6 +982,7 @@ class FastTypoEngine {
             // 2. Collapse accidental double-periods (".." -> ".") and multiple spaces after period ("..  " -> ". ")
             line = line.replacingOccurrences(of: #"(?<!\.)\.\.(?!\.)"#, with: ".", options: .regularExpression)   // ".." but never "..."
             line = line.replacingOccurrences(of: #"([.!?])\s{2,}"#, with: "$1 ", options: .regularExpression)
+            if Self.grammarEnabled { line = tidyPunctuation(line) }
             
             let rawWords = line.components(separatedBy: " ")
             var tokens: [Token] = []
@@ -933,19 +1008,21 @@ class FastTypoEngine {
                 tokens.append(Token(pre: pre, core: String(s), suf: suf))
             }
 
-            var finalTokens: [String] = []
+            var finalTokens: [Token] = []
             var capitalizeNext = false // Only auto-capitalize after a period/!/? inside the line (or standalone 'i')
             var sentenceStart = true
             var prevWord: String? = nil   // the previous fixed word, for word-pair context
+            var wordsInSentence = 0
 
             let joined = fixSplitWords(tokens)
             for (idx, token) in joined.enumerated() {
                 var w = token.core
                 let pre = token.pre
-                let suf = token.suf
+                var suf = token.suf
 
                 if !w.isEmpty {
                     let raw = w
+                    wordsInSentence += 1
                     var next: String? = nil
                     if idx + 1 < joined.count, token.suf.isEmpty {
                         let n = joined[idx + 1].core.lowercased()
@@ -971,18 +1048,25 @@ class FastTypoEngine {
                     }
                 }
                 
+                // A period that slipped in mid-thought: "I think. the best ideas" -> "I think the best ideas"
+                if Self.grammarEnabled, suf == ".", idx + 1 < joined.count,
+                   isAccidentalPeriod(after: w, next: joined[idx + 1], wordsSoFar: wordsInSentence) {
+                    suf = ""
+                }
+
                 if suf.contains(".") || suf.contains("!") || suf.contains("?") {
                     capitalizeNext = true
                     sentenceStart = true
                     prevWord = nil
+                    wordsInSentence = 0
                 } else if !w.isEmpty {
                     capitalizeNext = false
                 }
                 
-                finalTokens.append(pre + w + suf)
+                finalTokens.append(Token(pre: pre, core: w, suf: suf))
             }
-            
-            correctedLines.append(finalTokens.joined(separator: " "))
+            if Self.grammarEnabled { finalTokens = lightGrammar(finalTokens) }
+            correctedLines.append(finalTokens.map { $0.pre + $0.core + $0.suf }.joined(separator: " "))
         }
         
         return correctedLines.joined(separator: "\n")

@@ -38,6 +38,7 @@ It works in any app where you type, not just Freewrite.
 - **Wrong keyboard layout**: typed English while Thai (or another layout) was switched on by accident? `ะ้ำ ทนพืรเื` → `the morning`. Real writing in that language is left alone.
 - **Learns your habits**: a typo you make twice is memorised. Names it doesn't know are protected after 3 uses. Press ⌘Z right after a fix and nothing from it is learned.
 - **Careful**: if it isn't confident, it leaves the word alone.
+- **Light grammar** (can be switched off): `a idea` → an idea, `the the` → the, `could of` → could have, and periods that slip in mid-thought (`I think. the best` → `I think the best`).
 - **Private**: no internet, no AI service, no account. Everything runs on your Mac.
 
 ## Install

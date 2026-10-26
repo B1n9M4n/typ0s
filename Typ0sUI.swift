@@ -228,6 +228,8 @@ class Typ0sState: ObservableObject {
     @Published var appearance: AppearanceMode { didSet { d.set(appearance.rawValue, forKey: "appearance") } }
     /// Bold fixes more of your messy words; Careful only fixes when the learned model is very sure
     @Published var fixMode: FixGate.Mode { didSet { d.set(fixMode.rawValue, forKey: "fixMode"); FixGate.mode = fixMode } }
+    /// a/an, doubled words, "could of", and stray punctuation like "I think. the"
+    @Published var lightGrammar: Bool { didSet { d.set(lightGrammar, forKey: "lightGrammar"); FastTypoEngine.grammarEnabled = lightGrammar } }
 
     enum AppearanceMode: Int, CaseIterable { case auto, light, dark }
 
@@ -261,7 +263,9 @@ class Typ0sState: ObservableObject {
         playSounds = d.object(forKey: "sounds") as? Bool ?? true
         appearance = AppearanceMode(rawValue: d.integer(forKey: "appearance")) ?? .auto
         fixMode = FixGate.Mode(rawValue: d.string(forKey: "fixMode") ?? "") ?? .bold
+        lightGrammar = d.object(forKey: "lightGrammar") as? Bool ?? true
         FixGate.mode = fixMode
+        FastTypoEngine.grammarEnabled = lightGrammar
     }
 
     var usingExternalProfile: Bool {
@@ -768,6 +772,7 @@ struct HotkeysTab: View {
                     Toggle("Double-tap Right Shift", isOn: $state.doubleTapRightShiftEnabled)
                     Toggle("Floating pill (menu bar icon otherwise)", isOn: $state.showFloatingPill)
                     Toggle("Sounds", isOn: $state.playSounds)
+                    Toggle("Light grammar (a/an, “the the”, stray periods)", isOn: $state.lightGrammar)
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Fixing").font(.nm(13)).foregroundColor(.nmInk)
