@@ -334,7 +334,7 @@ class FastTypoEngine {
         for rule in UserDictionaryStore.shared.customRules where rule.replacement.lowercased() == lower { return true }
         if lower.count == 1 { return lower == "a" || lower == "i" }
         let model = WordModel.shared
-        if model.isLoaded { return model.contains(lower) }
+        if model.isLoaded { return model.contains(lower) || model.containsSpellingVariant(lower) }
         return spellCheckerKnows(word)   // fallback if the word lists are missing
     }
 
