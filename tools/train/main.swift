@@ -108,7 +108,12 @@ func learnGate(_ sets: [[(String, String)]], out: String) {
             guard a.count == b.count else { continue }
             let gold = b.map(letters)
             func ctx(_ j: Int) -> String? { (0..<gold.count).contains(j) && engine.isValidWord(gold[j]) ? gold[j].lowercased() : nil }
-            for i in 0..<a.count { add(letters(a[i]), gold: gold[i], prev: ctx(i - 1), next: ctx(i + 1)) }
+            for i in 0..<a.count {
+                // Like the engine: a capitalised unknown word mid-sentence is taken as a name and never reaches the gate
+                let start = i == 0 || a[i - 1].reversed().prefix { !$0.isLetter && !$0.isNumber }.contains { ".!?".contains($0) }
+                if !start, a[i].first?.isUppercase == true { continue }
+                add(letters(a[i]), gold: gold[i], prev: ctx(i - 1), next: ctx(i + 1))
+            }
         }
     }
     let n = X.count, d = X.first?.count ?? 0
