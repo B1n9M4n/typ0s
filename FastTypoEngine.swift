@@ -466,7 +466,17 @@ class FastTypoEngine {
             c.last == word.last ? 1 : 0,
             c.count == word.count + 1 && c.hasPrefix(word) ? 1 : 0,
             WordModel.contractions.contains(key) ? 1 : 0,
+            prev.map { pairAssociation($0, key) } ?? 0,
+            next.map { pairAssociation(key, $0) } ?? 0,
         ]
+    }
+
+    /// How much more often two words appear together than chance would give (log10 scale, 0 if the pair is unknown).
+    /// Unlike pairStrength it doesn't reward common words just for being common.
+    func pairAssociation(_ a: String, _ b: String) -> Double {
+        let m = WordModel.shared
+        guard let pair = m.pairLog(a, b), let fa = m.logFrequency(a), let fb = m.logFrequency(b) else { return 0 }
+        return Double(min(4, max(-2, pair - fa - fb + 12)))
     }
 
     /// For training the ranker: every candidate within reach of a typed word, with its facts

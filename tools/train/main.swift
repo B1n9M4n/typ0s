@@ -149,21 +149,44 @@ func learnGate(_ sets: [[(String, String)]], out: String) {
             print(String(format: "  step %d  log-loss %.4f", step, loss))
         }
     }
-    // Pick cut-offs on the held-back slice, using the same penalties as the dial search
+    // Pick cut-offs on 5-fold out-of-fold chances over all examples (fold 0 is the model above),
+    // smoothing the objective over +/-0.02, so one lucky step on a small slice can't win
+    let folds = 5
+    var oof = [Double](repeating: 0, count: n)
+    for k in 0..<folds {
+        var fw = [Double](repeating: 0, count: d), fb = 0.0
+        if k == 0 { fw = w; fb = b } else {
+            let idx = (0..<n).filter { $0 % folds != k }
+            for _ in 1...800 {
+                var gw = [Double](repeating: 0, count: d), gb = 0.0
+                for i in idx { let e = prob(fw, fb, Z[i]) - y[i]; for j in 0..<d { gw[j] += e * Z[i][j] }; gb += e }
+                let m = Double(idx.count)
+                for j in 0..<d { fw[j] -= 0.5 * (gw[j] / m + 0.001 * fw[j]) }
+                fb -= 0.5 * gb / m
+            }
+        }
+        for i in stride(from: k, to: n, by: folds) { oof[i] = prob(fw, fb, Z[i]) }
+    }
+    let allIdx = Array(0..<n)
     func pick(wrongCost: Double, cleanCost: Double) -> (Double, Int, Int, Int) {
-        var best = (0.5, 0, 0, 0), bestObj = -Double.infinity
+        var raw: [(Double, Int, Int, Int, Double)] = []
         for t in stride(from: 0.05, through: 0.95, by: 0.01) {
             var fixed = 0, wrong = 0, damaged = 0
-            for i in valIdx where prob(w, b, Z[i]) >= t {
+            for i in allIdx where oof[i] >= t {
                 if y[i] == 1 { fixed += 1 } else if isClean[i] { damaged += 1 } else { wrong += 1 }
             }
-            let obj = Double(fixed) - wrongCost * Double(wrong) - cleanCost * Double(damaged)
-            if obj > bestObj { bestObj = obj; best = (t, fixed, wrong, damaged) }
+            raw.append((t, fixed, wrong, damaged, Double(fixed) - wrongCost * Double(wrong) - cleanCost * Double(damaged)))
+        }
+        var best = (0.5, 0, 0, 0), bestObj = -Double.infinity
+        for k in raw.indices {
+            let win = raw[max(0, k - 2)...min(raw.count - 1, k + 2)]
+            let obj = win.map { $0.4 }.reduce(0, +) / Double(win.count)
+            if obj > bestObj { bestObj = obj; best = (raw[k].0, raw[k].1, raw[k].2, raw[k].3) }
         }
         return best
     }
-    let bold = pick(wrongCost: 1, cleanCost: 2), careful = pick(wrongCost: 4, cleanCost: 8)   // Careful: a wrong fix costs 4 right ones
-    let rights = valIdx.filter { y[$0] == 1 }.count
+    let bold = pick(wrongCost: 1.5, cleanCost: 3), careful = pick(wrongCost: 4, cleanCost: 8)   // Careful: a wrong fix costs 4 right ones
+    let rights = allIdx.filter { y[$0] == 1 }.count
     print(String(format: "Bold    cut-off %.2f: fixes %d of %d right fixes, %d wrong fixes, %d correct words touched", bold.0, bold.1, rights, bold.2, bold.3))
     print(String(format: "Careful cut-off %.2f: fixes %d of %d right fixes, %d wrong fixes, %d correct words touched", careful.0, careful.1, rights, careful.2, careful.3))
     let names = ["slip cost", "cost per letter", "lead over runner-up", "word frequency", "fits left word", "fits right word",
@@ -270,7 +293,7 @@ func learnRanker(_ sets: [[(String, String)]], out: String) {
         if step % 100 == 0 { print(String(format: "  step %d  picks right word %.1f%% (train) %.1f%% (held-back)", step, top1(w, trainZ) * 100, top1(w, valZ) * 100)) }
     }
     let names = ["slip cost", "word frequency", "fits left word", "fits right word", "length change",
-                 "same first letter", "same last letter", "stopped one key short", "contraction"]
+                 "same first letter", "same last letter", "stopped one key short", "contraction", "left association", "right association"]
     print("Learned weights (bigger = more likely the intended word):")
     for j in 0..<d { print(String(format: "  %+.3f  %@", w[j], names[j] as NSString)) }
     let fmt = { (a: [Double]) in a.map { String(format: "%.6f", $0) }.joined(separator: ", ") }
