@@ -1008,9 +1008,16 @@ struct TestTab: View {
 
     private func fix() {
         let before = text
-        let t0 = CFAbsoluteTimeGetCurrent()
-        let after = FastTypoEngine().fixAll(before)
-        ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+        DispatchQueue.global(qos: .userInitiated).async {   // Harper's grammar check takes ~0.3 s
+            let t0 = CFAbsoluteTimeGetCurrent()
+            let after = FastTypoEngine().fixAll(before)
+            let elapsed = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+            DispatchQueue.main.async { show(before: before, after: after, ms: elapsed) }
+        }
+    }
+
+    private func show(before: String, after: String, ms elapsed: Double) {
+        ms = elapsed
         text = after
         if let clean = classicClean { score = TypoInjector.score(clean: clean, fixed: after, slips: injected) }
 

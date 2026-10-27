@@ -905,7 +905,7 @@ class FastTypoEngine {
                     let orphan1 = w1.count == 1 && !k1, orphan2 = w2.count == 1 && !k2
 
                     // "a" or "i" split off the front of a word ("a ccessed", "i nclude"): join when that makes a word
-                    if w1.count == 1, k1, !k2, isValidWord(w1 + w2) {
+                    if w1.count == 1, k1, !k2, w2.count >= 3, isValidWord(w1 + w2), (model.logFrequency((w1 + w2).lowercased()) ?? 0) >= 6 {
                         result.append(Token(pre: t1.pre, core: w1 + w2, suf: t2.suf))
                         i += 2
                         continue

@@ -69,8 +69,12 @@ enum HarperGrammar {
         return String(suggestion.dropFirst(prefix.count).dropLast())
     }
 
+    /// A harper-cli that exits early must not take typ0s down with a broken pipe
+    private static let ignoreBrokenPipes: Void = { signal(SIGPIPE, SIG_IGN) }()
+
     /// Runs harper-cli on the text; nil if it fails or takes longer than a second
     static func lint(_ text: String, binary: URL) -> [[String: Any]]? {
+        _ = ignoreBrokenPipes
         let p = Process()
         p.executableURL = binary
         p.arguments = ["lint", "--format", "json", "--quiet", "--no-parallel"]
@@ -79,9 +83,12 @@ enum HarperGrammar {
         p.standardOutput = output
         p.standardError = FileHandle.nullDevice
         do { try p.run() } catch { return nil }
-        input.fileHandleForWriting.write(Data(text.utf8))
-        try? input.fileHandleForWriting.close()
-
+        // Write and read at the same time, both inside the time limit
+        let writer = input.fileHandleForWriting
+        DispatchQueue.global(qos: .userInitiated).async {
+            try? writer.write(contentsOf: Data(text.utf8))
+            try? writer.close()
+        }
         var data = Data()
         let reader = DispatchWorkItem { data = output.fileHandleForReading.readDataToEndOfFile() }
         DispatchQueue.global(qos: .userInitiated).async(execute: reader)

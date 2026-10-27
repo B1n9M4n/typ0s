@@ -385,9 +385,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     /// Run a fix and remember which key started it, so the pill can show it (screen recorders can't see it:
     /// typ0s swallows the hotkey so it doesn't also type into your text)
+    /// Fixing runs off the main thread, so the menu bar and pill never stall (Harper adds ~0.3 s)
+    let fixQueue = DispatchQueue(label: "typ0s.fix", qos: .userInteractive)
+
     func fire(label: String) {
         state.lastTriggerLabel = label
-        fixTextDirectly()
+        fixQueue.async { self.fixTextDirectly() }
     }
     
     func flashPillSuccess(latencyMs: Double) {
