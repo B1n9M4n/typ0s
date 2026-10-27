@@ -468,6 +468,8 @@ class FastTypoEngine {
             WordModel.contractions.contains(key) ? 1 : 0,
             prev.map { pairAssociation($0, key) } ?? 0,
             next.map { pairAssociation(key, $0) } ?? 0,
+            prev.map { m.pairLog($0, key) == nil ? 1 : 0 } ?? 0,
+            next.map { m.pairLog(key, $0) == nil ? 1 : 0 } ?? 0,
         ]
     }
 
