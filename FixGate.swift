@@ -11,12 +11,12 @@ enum FixGate {
     static var forceOff = false   // training/testing: use the hand-written rules instead
     static var isTrained: Bool { !weights.isEmpty && !forceOff }
 
-    static let boldThreshold = 0.64
-    static let carefulThreshold = 0.87
-    static let mean: [Double] = [0.654890, 0.118571, 2.515102, 7.938655, 1.566613, 1.407282, 6.601435, 3.594755, 0.301291, 0.127834, 0.005237]
-    static let scale: [Double] = [0.355645, 0.080984, 0.892530, 1.274708, 1.494911, 1.493656, 2.913157, 1.825089, 0.458819, 0.333904, 0.072176]
-    static let weights: [Double] = [-0.927453, -0.461474, 0.743559, 0.767460, 0.209280, 0.324216, 0.468911, -0.000341, -0.758438, -0.617279, 0.024623]
-    static let bias = 1.840707
+    static let boldThreshold = 0.68
+    static let carefulThreshold = 0.85
+    static let mean: [Double] = [0.654447, 0.118311, 2.515636, 7.924859, 1.559212, 1.393444, 6.613862, 3.587120, 0.304916, 0.133339, 0.004836]
+    static let scale: [Double] = [0.354563, 0.080591, 0.889309, 1.272450, 1.495196, 1.492818, 2.905407, 1.826204, 0.460372, 0.339941, 0.069371]
+    static let weights: [Double] = [-0.982050, -0.400818, 0.795256, 0.808423, 0.199619, 0.296481, 0.570908, 0.044076, -0.738424, -0.642428, 0.038033]
+    static let bias = 1.830583
 
     /// Chance (0-1) that fixing to the best candidate is right
     static func probability(_ x: [Double]) -> Double {

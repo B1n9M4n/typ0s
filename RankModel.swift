@@ -7,9 +7,9 @@ enum RankModel {
     static var forceOff = false   // training/testing: use the hand-written formula instead
     static var isTrained: Bool { !weights.isEmpty && !forceOff }
 
-    static let mean: [Double] = [1.474848, 6.604790, 0.270547, 0.228714, 1.077628, 0.399004, 0.444870, 0.004667, 0.002644]
-    static let scale: [Double] = [0.462841, 1.225222, 0.857160, 0.794069, 0.786311, 0.489694, 0.496951, 0.068159, 0.051355]
-    static let weights: [Double] = [-3.174340, 1.544274, 0.684631, 0.568480, -0.499894, 0.596080, 0.568034, 0.086200, 0.050874]
+    static let mean: [Double] = [1.477180, 6.602676, 0.268116, 0.228831, 1.081544, 0.399319, 0.444915, 0.004556, 0.002607]
+    static let scale: [Double] = [0.463102, 1.224505, 0.853684, 0.794259, 0.786623, 0.489759, 0.496956, 0.067343, 0.050995]
+    static let weights: [Double] = [-3.217453, 1.508692, 0.701473, 0.565005, -0.465870, 0.613616, 0.575962, 0.077393, 0.024319]
 
     static func score(_ x: [Double]) -> Double {
         var z = 0.0
