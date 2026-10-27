@@ -470,6 +470,7 @@ class FastTypoEngine {
             next.map { pairAssociation(key, $0) } ?? 0,
             prev.map { m.pairLog($0, key) == nil ? 1 : 0 } ?? 0,
             next.map { m.pairLog(key, $0) == nil ? 1 : 0 } ?? 0,
+            Double(max(0, 5.5 - (m.logFrequency(key) ?? 5))),
         ]
     }
 

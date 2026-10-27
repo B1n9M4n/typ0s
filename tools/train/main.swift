@@ -293,7 +293,7 @@ func learnRanker(_ sets: [[(String, String)]], out: String) {
         if step % 100 == 0 { print(String(format: "  step %d  picks right word %.1f%% (train) %.1f%% (held-back)", step, top1(w, trainZ) * 100, top1(w, valZ) * 100)) }
     }
     let names = ["slip cost", "word frequency", "fits left word", "fits right word", "length change",
-                 "same first letter", "same last letter", "stopped one key short", "contraction", "left association", "right association", "left pair unseen", "right pair unseen"]
+                 "same first letter", "same last letter", "stopped one key short", "contraction", "left association", "right association", "left pair unseen", "right pair unseen", "rarity"]
     print("Learned weights (bigger = more likely the intended word):")
     for j in 0..<d { print(String(format: "  %+.3f  %@", w[j], names[j] as NSString)) }
     let fmt = { (a: [Double]) in a.map { String(format: "%.6f", $0) }.joined(separator: ", ") }
