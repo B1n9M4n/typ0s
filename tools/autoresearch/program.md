@@ -13,7 +13,7 @@ It takes about 4 minutes. **Run it with a Bash timeout of 600000 ms** (the defau
 - `SCORE <n>`: higher is better. It equals fixed typos − 2 × wrong words − 4 × damaged clean sentences (Bold mode).
 - `GUARDS PASS` or `GUARDS FAIL: <why>`. A change is only kept if the guards pass.
 
-Baseline at the start: **SCORE 1352**, guards pass.
+Baseline for round 2: **SCORE 1496** at b2d9956, guards pass. Round 1 log and lessons are in results.tsv. Run experiment.sh with run_in_background and wait for it to finish; one run went past the 600 s foreground timeout.
 
 ## One experiment
 
