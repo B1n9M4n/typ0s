@@ -492,7 +492,7 @@ class FastTypoEngine {
         c.cost > Self.tuning.tieCost && c.runnerUpGap < Self.tuning.tieMargin
     }
 
-    /// The 11 facts the learned fix gate weighs, for fixing `word` (as typed) to candidate `c`
+    /// The 12 facts the learned fix gate weighs, for fixing `word` (as typed) to candidate `c`
     func gateFeatures(_ word: String, _ c: Candidate, prev: String?, next: String?, original: String) -> [Double] {
         let m = WordModel.shared
         let key = c.word.lowercased()
@@ -509,7 +509,21 @@ class FastTypoEngine {
             spellCheckerKnows(original) ? 1 : 0,
             original.first?.isUppercase == true ? 1 : 0,
             WordModel.contractions.contains(key) ? 1 : 0,
+            inflectedStemFrequency(word),
         ]
+    }
+
+    /// If the typed word looks like a known word plus a common ending ("colors", "app's", "bundled"),
+    /// how common that stem is (0 if not). Such words are often correct, just missing from the list.
+    func inflectedStemFrequency(_ word: String) -> Double {
+        let m = WordModel.shared
+        var best: Float = 0
+        for suffix in ["'s", "s'", "s", "es", "ed", "d", "ing", "er", "ers", "ly", "ness", "ment"] where word.hasSuffix(suffix) {
+            let stem = String(word.dropLast(suffix.count))
+            guard stem.count >= 3 else { continue }
+            for s in [stem, stem + "e"] { if let f = m.logFrequency(s), f > best { best = f } }
+        }
+        return Double(best)
     }
 
     /// For training: the best candidate for a typed word and the gate's facts about it (nil if no candidate)
