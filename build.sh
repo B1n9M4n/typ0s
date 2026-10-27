@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-SOURCES=(Typ0sApp.swift Typ0sUI.swift FastTypoEngine.swift WordModel.swift FixGate.swift RankModel.swift)
+SOURCES=(Typ0sApp.swift Typ0sUI.swift FastTypoEngine.swift WordModel.swift FixGate.swift RankModel.swift HarperGrammar.swift)
 VERSION="0.3.0"
 MIN_MACOS="14.0"
 OUT="build"
@@ -23,6 +23,17 @@ rm "$OUT/typ0s-arm64" "$OUT/typ0s-x86_64"
 echo "→ Adding the word lists…"
 mkdir -p "$APP/Contents/Resources/Dictionary"
 cp Dictionary/words.txt Dictionary/bigrams.txt Dictionary/LICENSE.md "$APP/Contents/Resources/Dictionary/"
+
+# Harper grammar checker (Apache-2.0), if installed with `brew install harper`; it's Apple Silicon only
+HARPER="$(command -v harper-cli || true)"
+if [ -n "$HARPER" ]; then
+  echo "→ Adding the Harper grammar checker…"
+  HARPER="$(realpath "$HARPER")"
+  mkdir -p "$APP/Contents/Helpers"
+  cp "$HARPER" "$APP/Contents/Helpers/harper-cli"
+  chmod u+w "$APP/Contents/Helpers/harper-cli"
+  cp "$(dirname "$HARPER")/../LICENSE" "$APP/Contents/Resources/Harper-LICENSE"
+fi
 
 echo "→ Drawing the app icon…"
 ICONSET="$OUT/AppIcon.iconset"
@@ -61,11 +72,12 @@ PLIST
 SIGN_ID="typ0s Local Signing"
 if security find-identity -p codesigning 2>/dev/null | grep -q "\"$SIGN_ID\""; then
   echo "→ Signing with \"$SIGN_ID\"…"
-  codesign --force --sign "$SIGN_ID" "$APP"
 else
   echo "→ Signing (ad-hoc)…"
-  codesign --force --sign - "$APP" >/dev/null 2>&1
+  SIGN_ID="-"
 fi
+[ -f "$APP/Contents/Helpers/harper-cli" ] && codesign --force --sign - "$APP/Contents/Helpers/harper-cli" 2>/dev/null
+codesign --force --sign "$SIGN_ID" "$APP" 2>/dev/null
 
 echo "→ Zipping for sharing…"
 ditto -c -k --norsrc --keepParent "$APP" "$OUT/typ0s-$VERSION.zip"

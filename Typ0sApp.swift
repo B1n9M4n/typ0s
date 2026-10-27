@@ -423,7 +423,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                let selectedText = selectedTextRef as? String,
                !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 
-                let fixed = engine.correctText(selectedText, learn: true)
+                let fixed = engine.fixAll(selectedText, learn: true)
                 if AXUIElementSetAttributeValue(axElement, kAXSelectedTextAttribute as CFString, fixed as CFTypeRef) == .success {
                     let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000.0
                     flashPillSuccess(latencyMs: ms)
@@ -437,7 +437,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                let fullText = fullValueRef as? String,
                !fullText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 
-                let fixedFullText = engine.correctText(fullText, learn: true)
+                let fixedFullText = engine.fixAll(fullText, learn: true)
                 if AXUIElementSetAttributeValue(axElement, kAXValueAttribute as CFString, fixedFullText as CFTypeRef) == .success {
                     let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000.0
                     flashPillSuccess(latencyMs: ms)
@@ -482,7 +482,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             
-            let corrected = self.engine.correctText(targetText, learn: true)
+            let corrected = self.engine.fixAll(targetText, learn: true)
             pasteboard.clearContents()
             pasteboard.setString(corrected, forType: .string)
             self.sendShortcut(keyCode: 9, flags: .maskCommand) // Cmd+V

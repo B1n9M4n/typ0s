@@ -39,6 +39,7 @@ It works in any app where you type, not just Freewrite.
 - **Learns your habits**: a typo you make twice is memorised. Names it doesn't know are protected after 3 uses. Press ⌘Z right after a fix and nothing from it is learned.
 - **Careful**: if it isn't confident, it leaves the word alone.
 - **Light grammar** (can be switched off): `a idea` → an idea, `the the` → the, `could of` → could have, and periods that slip in mid-thought (`I think. the best` → `I think the best`).
+- **Grammar check by [Harper](https://writewithharper.com)** (can be switched off; Apple Silicon): `we was` → we were, `he go` → he goes, `it's constructor` → its constructor. It runs on your Mac with no AI and no internet, adds about a quarter of a second, and typ0s only applies fixes Harper is sure of (one suggestion, grammar only, no style advice).
 - **Private**: no internet, no AI service, no account. Everything runs on your Mac.
 
 ## Install
@@ -74,7 +75,7 @@ cd typ0s
 open build/typ0s.app
 ```
 
-`build.sh` makes `build/typ0s.app` (Apple Silicon + Intel) and a zip for sharing. An app you build yourself doesn't get the "can't check this app" warning.
+`build.sh` makes `build/typ0s.app` (Apple Silicon + Intel) and a zip for sharing. To include the Harper grammar check, run `brew install harper` first; `build.sh` bundles it when it's installed. An app you build yourself doesn't get the "can't check this app" warning.
 
 ## Privacy
 
@@ -84,7 +85,8 @@ typ0s watches the keyboard only to notice its hotkeys and ⌘Z. It reads text on
 
 - Fixing with nothing selected rewrites the whole text box. In rich-text apps (Notes, Mail) that can drop formatting, so select the paragraph first there.
 - Some web and Electron apps don't allow direct editing, so typ0s falls back to copy and paste and puts your clipboard back afterwards.
-- It fixes slips, not grammar. A slip that makes another real word (`live` → `life`) usually can't be caught.
+- A slip that makes another real word (`live` → `life`) usually can't be caught.
+- Harper's grammar check misses some mistakes (`they was`, `your welcome`) and doesn't run on Intel Macs.
 - Chinese Pinyin and other input methods can't be reversed when switched on by accident.
 
 ## How it decides
@@ -108,6 +110,8 @@ TYP0S_DICTIONARY=Dictionary build/train search data/myslips_train.tsv data/nonwo
 `tools/data/README.md` explains how the training data is made. Train only on `*_train` files and judge on `*_test` files. The `tests/` folder has real typos from freewriting sessions (`real_typos.tsv`), older bugs (`regression.tsv`) and clean text that must never change (`clean_text.txt`).
 
 ## Credits
+
+Grammar check: [Harper](https://github.com/Automattic/harper) (Apache-2.0, Automattic), bundled as `harper-cli`; its licence ships in the app as `Harper-LICENSE`.
 
 Word lists: [SymSpell](https://github.com/wolfgarbe/SymSpell) frequency dictionaries (MIT, Wolf Garbe), with counts from the Google Books Ngram data (CC BY 3.0). See `Dictionary/LICENSE.md`.
 
