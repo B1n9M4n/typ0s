@@ -628,6 +628,9 @@ class FastTypoEngine {
         if rawWord.contains(where: { $0.isNumber }) { return rawWord }
         // URLs, emails, file names, code
         if rawWord.contains(where: { "./@:_#".contains($0) }) { return rawWord }
+        // Parentheses or braces inside a word ("size(s)") mean code or a plural marker, not a typo.
+        // Square brackets are left out: "ap[rt" is a slipped key, and the edges are stripped before this anyway
+        if rawWord.contains(where: { "(){}".contains($0) }) { return rawWord }
         // Other scripts (Thai, Chinese, ...) are real writing, not English typos
         if rawWord.unicodeScalars.contains(where: { $0.value > 0x024F && CharacterSet.letters.contains($0) }) { return rawWord }
 
@@ -658,15 +661,10 @@ class FastTypoEngine {
         // 2. Well-known misspellings
         if let direct = instantFixes[lower] { return result(direct) }
 
-        // 3. Hyphenated words: fix each part (and "AI-NLP" -> "AI/NLP")
+        // 3. Hyphenated words: fix each part, but leave short parts alone ("OBD-II", "un-flushed")
         if rawWord.contains("-") {
             let parts = rawWord.components(separatedBy: "-")
-            if parts.count == 2 && parts[0].count <= 4 && parts[1].count <= 4 &&
-               parts[0].uppercased() == parts[0] && parts[1].uppercased() == parts[1] &&
-               parts.allSatisfy({ $0.count >= 2 && $0.allSatisfy { $0.isLetter } }) {
-                return "\(parts[0])/\(parts[1])"
-            }
-            return parts.map { fixSingleWord($0, sentenceStart: sentenceStart) }.joined(separator: "-")
+            return parts.map { $0.count < 3 ? $0 : fixSingleWord($0, sentenceStart: sentenceStart) }.joined(separator: "-")
         }
 
         // 4. Letters only: keys that bled in from punctuation ("m,oving", "kep[e") are dropped
@@ -1070,7 +1068,8 @@ class FastTypoEngine {
                         if isValidWord(n) { next = n }
                     }
                     let memoKey = "\(prevWord ?? "")|\(raw)|\(next ?? "")|\(sentenceStart)"
-                    if let cached = memo[memoKey] { w = cached } else {
+                    // Right after a "." with no space ("report.epub" split at the dot, ".epub"): a file extension, leave it
+                    if pre.hasSuffix(".") { } else if let cached = memo[memoKey] { w = cached } else {
                         w = fixSingleWord(raw, prev: prevWord, next: next, sentenceStart: sentenceStart)
                         // Spelled right but maybe the wrong word: check it against its neighbours
                         if w == raw, isValidWord(raw), let alt = realWordFix(raw.lowercased(), prev: prevWord, next: next) {
