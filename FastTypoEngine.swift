@@ -777,7 +777,12 @@ class FastTypoEngine {
         let w = word.lowercased()
         if ["hour", "honest", "honor", "honour", "heir"].contains(where: { w.hasPrefix($0) }) { return true }
         if ["uni", "use", "usu", "ute", "uti", "uro", "one", "once", "eu", "ewe", "ufo", "ubi"].contains(where: { w.hasPrefix($0) }) { return false }
-        return w.first.map { "aeiou".contains($0) } ?? false
+        let l = Array(w)
+        // "u" + consonant (not n, p) + vowel says "you": usability, utility, ukulele
+        if l.count >= 3, l[0] == "u", !"aeiouyn p".contains(l[1]), l[1].isLetter, "aeiouy".contains(l[2]) { return false }
+        // "x" + consonant is spelled out: "an xref"
+        if l.count >= 2, l[0] == "x", l[1].isLetter, !"aeiouy".contains(l[1]) { return true }
+        return l.first.map { "aeiou".contains($0) } ?? false
     }
 
     /// a/an, doubled words ("the the"), "could of" -> "could have". Only near-certain rules.
