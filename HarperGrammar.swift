@@ -51,6 +51,11 @@ enum HarperGrammar {
             if wordCount(replacement) > wordCount(String(String.UnicodeScalarView(scalars[start..<end]))) { continue }
             // acronyms, codes and numbers confuse Harper ("an RPM", "v2 files"); "a"/"an" is judged by the word after it
             var touched = String.UnicodeScalarView(wholeWords(scalars, start, end))
+            // on a/an the typo engine decides: take Harper's article only if the engine agrees with it
+            if rule == "AnA" {
+                let next = String(nextWord(scalars, end))
+                if (FastTypoEngine.startsWithVowelSound(next) ? "an" : "a") != replacement.lowercased() { continue }
+            }
             if rule == "AnA" { touched.append(contentsOf: " ".unicodeScalars); touched.append(contentsOf: nextWord(scalars, end)) }
             let touchedWords = String(touched).split(whereSeparator: { $0.isWhitespace }) + replacement.split(whereSeparator: { $0.isWhitespace })
             if touchedWords.contains(where: isCodeLike) { continue }

@@ -14,6 +14,7 @@ let cases: [(String, String)] = [
     ("Apart of that, it works.", "Apart of that, it works."),                            // ambiguous: left alone
     ("Please run the image through an optimizing tool.", "Please run the image through an optimizing tool."),
     ("Use an SQL query for that.", "Use an SQL query for that."),                         // acronym after "an": left alone
+    ("Open an xref link now.", "Open an xref link now."),                              // engine says "an xref"; Harper must not undo it
     ("It is much easier for contributors to quickly", "It is much easier for contributors to quickly"),   // to/too false alarm
     ("I think the best ideas come when you don't stop.", "I think the best ideas come when you don't stop."),
 ]

@@ -773,7 +773,7 @@ class FastTypoEngine {
     }
 
     /// Does this word start with a vowel sound ("an hour", "a university")?
-    private func startsWithVowelSound(_ word: String) -> Bool {
+    static func startsWithVowelSound(_ word: String) -> Bool {
         let w = word.lowercased()
         if ["hour", "honest", "honor", "honour", "heir"].contains(where: { w.hasPrefix($0) }) { return true }
         if ["uni", "use", "usu", "ute", "uti", "uro", "one", "once", "eu", "ewe", "ufo", "ubi"].contains(where: { w.hasPrefix($0) }) { return false }
@@ -812,7 +812,7 @@ class FastTypoEngine {
                 // Skip words said letter by letter (no vowel: "rpm", "sql")
                 if next.pre.isEmpty, next.core == nl, isValidWord(nl), nl.count > 1, !notNouns.contains(nl),
                    nl.contains(where: { "aeiouy".contains($0) }) {
-                    let want = startsWithVowelSound(nl) ? "an" : "a"
+                    let want = FastTypoEngine.startsWithVowelSound(nl) ? "an" : "a"
                     if lower != want { t.core = t.core.first!.isUppercase ? want.capitalized : want }
                 }
             }
