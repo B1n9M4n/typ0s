@@ -505,7 +505,7 @@ class FastTypoEngine {
         c.cost > Self.tuning.tieCost && c.runnerUpGap < Self.tuning.tieMargin
     }
 
-    /// The 12 facts the learned fix gate weighs, for fixing `word` (as typed) to candidate `c`
+    /// The 13 facts the learned fix gate weighs, for fixing `word` (as typed) to candidate `c`
     func gateFeatures(_ word: String, _ c: Candidate, prev: String?, next: String?, original: String) -> [Double] {
         let m = WordModel.shared
         let key = c.word.lowercased()
@@ -523,7 +523,18 @@ class FastTypoEngine {
             original.first?.isUppercase == true ? 1 : 0,
             WordModel.contractions.contains(key) ? 1 : 0,
             inflectedStemFrequency(word),
+            isTwoWordsGlued(word) ? 1 : 0,
         ]
+    }
+
+    /// The typed word is two common words glued together ("changeset"): often jargon, not a typo
+    func isTwoWordsGlued(_ word: String) -> Bool {
+        let c = Array(word), m = WordModel.shared
+        guard c.count >= 6 else { return false }
+        for i in 3...(c.count - 3) {
+            if let a = m.logFrequency(String(c[..<i])), let b = m.logFrequency(String(c[i...])), a >= 6, b >= 6 { return true }
+        }
+        return false
     }
 
     /// If the typed word looks like a known word plus a common ending ("colors", "app's", "bundled"),

@@ -152,29 +152,42 @@ func learnGate(_ sets: [[(String, String)]], out: String) {
     // Pick cut-offs on 5-fold out-of-fold chances over all examples (fold 0 is the model above),
     // smoothing the objective over +/-0.02, so one lucky step on a small slice can't win
     let folds = 5
-    var oof = [Double](repeating: 0, count: n)
-    for k in 0..<folds {
-        var fw = [Double](repeating: 0, count: d), fb = 0.0
-        if k == 0 { fw = w; fb = b } else {
-            let idx = (0..<n).filter { $0 % folds != k }
-            for _ in 1...800 {
-                var gw = [Double](repeating: 0, count: d), gb = 0.0
-                for i in idx { let e = prob(fw, fb, Z[i]) - y[i]; for j in 0..<d { gw[j] += e * Z[i][j] }; gb += e }
-                let m = Double(idx.count)
-                for j in 0..<d { fw[j] -= 0.5 * (gw[j] / m + 0.001 * fw[j]) }
-                fb -= 0.5 * gb / m
-            }
+    /// Out-of-fold chances from models that see only the first `dims` facts
+    func outOfFold(dims: Int) -> [Double] {
+        func p(_ w: [Double], _ b: Double, _ z: [Double]) -> Double {
+            var s = b; for j in 0..<dims { s += w[j] * z[j] }; return 1 / (1 + exp(-s))
         }
-        for i in stride(from: k, to: n, by: folds) { oof[i] = prob(fw, fb, Z[i]) }
+        var oof = [Double](repeating: 0, count: n)
+        for k in 0..<folds {
+            var fw = [Double](repeating: 0, count: dims), fb = 0.0
+            if k == 0 && dims == d { fw = w; fb = b } else {
+                let idx = (0..<n).filter { $0 % folds != k }
+                for _ in 1...800 {
+                    var gw = [Double](repeating: 0, count: dims), gb = 0.0
+                    for i in idx { let e = p(fw, fb, Z[i]) - y[i]; for j in 0..<dims { gw[j] += e * Z[i][j] }; gb += e }
+                    let m = Double(idx.count)
+                    for j in 0..<dims { fw[j] -= 0.5 * (gw[j] / m + 0.001 * fw[j]) }
+                    fb -= 0.5 * gb / m
+                }
+            }
+            for i in stride(from: k, to: n, by: folds) { oof[i] = p(fw, fb, Z[i]) }
+        }
+        return oof
     }
+    let oof = outOfFold(dims: d)
     let allIdx = Array(0..<n)
+    /// Right fixes, wrong fixes and correct words touched at cut-off `t`
+    func counts(_ chances: [Double], _ t: Double) -> (Int, Int, Int) {
+        var fixed = 0, wrong = 0, damaged = 0
+        for i in allIdx where chances[i] >= t {
+            if y[i] == 1 { fixed += 1 } else if isClean[i] { damaged += 1 } else { wrong += 1 }
+        }
+        return (fixed, wrong, damaged)
+    }
     func pick(wrongCost: Double, cleanCost: Double) -> (Double, Int, Int, Int) {
         var raw: [(Double, Int, Int, Int, Double)] = []
         for t in stride(from: 0.05, through: 0.95, by: 0.01) {
-            var fixed = 0, wrong = 0, damaged = 0
-            for i in allIdx where oof[i] >= t {
-                if y[i] == 1 { fixed += 1 } else if isClean[i] { damaged += 1 } else { wrong += 1 }
-            }
+            let (fixed, wrong, damaged) = counts(oof, t)
             raw.append((t, fixed, wrong, damaged, Double(fixed) - wrongCost * Double(wrong) - cleanCost * Double(damaged)))
         }
         var best = (0.5, 0, 0, 0), bestObj = -Double.infinity
@@ -185,12 +198,32 @@ func learnGate(_ sets: [[(String, String)]], out: String) {
         }
         return best
     }
-    let bold = pick(wrongCost: 1.5, cleanCost: 3), careful = pick(wrongCost: 4, cleanCost: 8)   // Careful: a wrong fix costs 4 right ones
+    // Bold holds the error budget: the out-of-fold wrong fixes + correct words touched of the shipped gate's
+    // facts at the shipped Bold cut-off. Within that budget, take the cut-off that makes the most right fixes.
+    let bold: (Double, Int, Int, Int)
+    if FixGate.weights.count > 0 && FixGate.weights.count <= d {
+        let before = counts(outOfFold(dims: FixGate.weights.count), FixGate.boldThreshold)
+        let budget = before.1 + before.2
+        print(String(format: "Error budget: %d wrong fixes + correct words touched (%d facts at cut-off %.2f)",
+                     budget, FixGate.weights.count, FixGate.boldThreshold))
+        var pickT = 0.95
+        for t in stride(from: 0.95, through: 0.05, by: -0.01) {
+            let c = counts(oof, t)
+            if c.1 + c.2 > budget { break }
+            pickT = t
+        }
+        let c = counts(oof, pickT)
+        bold = (pickT, c.0, c.1, c.2)
+    } else {
+        bold = pick(wrongCost: 1.5, cleanCost: 3)
+    }
+    let careful = pick(wrongCost: 4, cleanCost: 8)   // Careful: a wrong fix costs 4 right ones
     let rights = allIdx.filter { y[$0] == 1 }.count
     print(String(format: "Bold    cut-off %.2f: fixes %d of %d right fixes, %d wrong fixes, %d correct words touched", bold.0, bold.1, rights, bold.2, bold.3))
     print(String(format: "Careful cut-off %.2f: fixes %d of %d right fixes, %d wrong fixes, %d correct words touched", careful.0, careful.1, rights, careful.2, careful.3))
     let names = ["slip cost", "cost per letter", "lead over runner-up", "word frequency", "fits left word", "fits right word",
-                 "length", "candidates in reach", "macOS knows it", "capitalised", "contraction", "known stem + ending"]
+                 "length", "candidates in reach", "macOS knows it", "capitalised", "contraction", "known stem + ending",
+                 "two words glued"]
     print("Learned weights (bigger = more confident to fix):")
     for j in 0..<d { print(String(format: "  %+.3f  %@", w[j], names[j] as NSString)) }
 
