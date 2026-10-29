@@ -527,7 +527,7 @@ class FastTypoEngine {
         ]
     }
 
-    /// The typed word is two common words glued together ("changeset"): often jargon, not a typo
+    /// The typed word is two common words glued together (a compound or jargon): often not a typo
     func isTwoWordsGlued(_ word: String) -> Bool {
         let c = Array(word), m = WordModel.shared
         guard c.count >= 6 else { return false }
@@ -790,9 +790,9 @@ class FastTypoEngine {
         if ["uni", "use", "usu", "ute", "uti", "uro", "one", "once", "eu", "ewe", "ufo", "ubi"].contains(where: { w.hasPrefix($0) }) { return false }
         let l = Array(w)
         // "u" + consonant (not n, p) + vowel says "you": usability, utility, ukulele
-        if l.count >= 3, l[0] == "u", !"aeiouyn p".contains(l[1]), l[1].isLetter, "aeiouy".contains(l[2]) { return false }
-        // "x" + consonant is spelled out: "an xref"
-        if l.count >= 2, l[0] == "x", l[1].isLetter, !"aeiouy".contains(l[1]) { return true }
+        if l.count >= 3, l[0] == "u", !"aeiouynp".contains(l[1]), l[1].isLetter, "aeiouy".contains(l[2]), !(l[1] == "b" && l[2] == "u") { return false }
+        // "x" + consonant (or nothing, or punctuation) is spelled out: "an xref", "an x-ray"
+        if l.first == "x", l.count < 2 || !l[1].isLetter || !"aeiouy".contains(l[1]) { return true }
         return l.first.map { "aeiou".contains($0) } ?? false
     }
 
@@ -1092,7 +1092,7 @@ class FastTypoEngine {
                     }
                     let memoKey = "\(prevWord ?? "")|\(raw)|\(next ?? "")|\(sentenceStart)"
                     // Right after a "." with no space ("report.epub" split at the dot, ".epub"): a file extension, leave it
-                    if pre.hasSuffix(".") { } else if let cached = memo[memoKey] { w = cached } else {
+                    if pre == ".", token.core.count <= 4 { } else if let cached = memo[memoKey] { w = cached } else {
                         w = fixSingleWord(raw, prev: prevWord, next: next, sentenceStart: sentenceStart)
                         // Spelled right but maybe the wrong word: check it against its neighbours
                         if w == raw, isValidWord(raw), let alt = realWordFix(raw.lowercased(), prev: prevWord, next: next) {

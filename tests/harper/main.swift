@@ -15,6 +15,9 @@ let cases: [(String, String)] = [
     ("Please run the image through an optimizing tool.", "Please run the image through an optimizing tool."),
     ("Use an SQL query for that.", "Use an SQL query for that."),                         // acronym after "an": left alone
     ("Open an xref link now.", "Open an xref link now."),                              // engine says "an xref"; Harper must not undo it
+    ("I use an sql database and an rpm package.", "I use an sql database and an rpm package."),   // no-vowel words: spelled out, left alone
+    ("He took a x-ray of it.", "He took an x-ray of it."),
+    ("It was a (optional) step.", "It was an (optional) step."),
     ("It is much easier for contributors to quickly", "It is much easier for contributors to quickly"),   // to/too false alarm
     ("I think the best ideas come when you don't stop.", "I think the best ideas come when you don't stop."),
 ]

@@ -53,7 +53,9 @@ enum HarperGrammar {
             var touched = String.UnicodeScalarView(wholeWords(scalars, start, end))
             // on a/an the typo engine decides: take Harper's article only if the engine agrees with it
             if rule == "AnA" {
-                let next = String(nextWord(scalars, end))
+                let next = String(String(nextWord(scalars, end)).drop(while: { !$0.isLetter }))
+                // no vowel at all ("an rpm", "an sql"): spelled letter by letter, the engine leaves it alone
+                if !next.lowercased().contains(where: { "aeiouy".contains($0) }) { continue }
                 if (FastTypoEngine.startsWithVowelSound(next) ? "an" : "a") != replacement.lowercased() { continue }
             }
             if rule == "AnA" { touched.append(contentsOf: " ".unicodeScalars); touched.append(contentsOf: nextWord(scalars, end)) }
