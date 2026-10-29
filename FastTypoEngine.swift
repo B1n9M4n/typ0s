@@ -930,6 +930,13 @@ class FastTypoEngine {
                             let leftFreq = model.logFrequency(left.lowercased()) ?? 0
                             if rightFreq >= leftFreq - 1 { fixed = nil }   // "gand" is too rare to beat "anything"
                         }
+                        // A fuzzy join of two broken pieces loses to moving the space one letter ("releas eis" -> "release is"),
+                        // and is only trusted when the joined word is common ("wah rto" must not become a rare word)
+                        if let f = fixed, !isValidWord(joinedWord) {
+                            let shifts = [(w1 + String(w2.prefix(1)), String(w2.dropFirst())), (String(w1.dropLast()), String(w1.suffix(1)) + w2)]
+                            if shifts.contains(where: { isSolidPiece($0.0) && isSolidPiece($0.1) }) { fixed = nil }
+                            else if (model.logFrequency(f.lowercased()) ?? 0) < 6 { fixed = nil }
+                        }
                         // Gluing a stray letter onto a correct word must not turn it into a rarer word ("in k" -> "ink")
                         if let f = fixed, k1 || k2 {
                             let base = (k1 ? w1 : w2).lowercased()
