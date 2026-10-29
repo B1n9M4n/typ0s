@@ -13,6 +13,8 @@ let cases: [(String, String)] = [
     ("It’s fine and its a apple, i think.", "It’s fine and it’s an apple, I think."),   // keeps curly apostrophes
     ("Apart of that, it works.", "Apart of that, it works."),                            // ambiguous: left alone
     ("Please run the image through an optimizing tool.", "Please run the image through an optimizing tool."),
+    ("Use an SQL query for that.", "Use an SQL query for that."),                         // acronym after "an": left alone
+    ("It is much easier for contributors to quickly", "It is much easier for contributors to quickly"),   // to/too false alarm
     ("I think the best ideas come when you don't stop.", "I think the best ideas come when you don't stop."),
 ]
 var failed = 0

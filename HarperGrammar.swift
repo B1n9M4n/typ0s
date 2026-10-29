@@ -20,7 +20,10 @@ enum HarperGrammar {
     /// Kinds of advice that are about grammar, not style
     static let trustedKinds: Set<String> = ["Agreement", "Grammar", "Word Choice", "Miscellaneous", "Repetition", "Usage", "Typo"]
     /// Rules inside those kinds that restyle correct text or overlap with typ0s's own fixes
-    static let skippedRules: Set<String> = ["CompoundNouns", "PhrasalVerbAsCompoundNoun", "SplitWords", "CommaFixes"]
+    static let skippedRules: Set<String> = ["CompoundNouns", "PhrasalVerbAsCompoundNoun", "SplitWords", "CommaFixes",
+        // false alarms on correct sentences in testing
+        "ToTwoToo", "InflectedVerbAfterTo", "ToDoHyphen", "Wanna", "UpdatePlaceNames", "YourPredicateAdjective",
+        "NeedToNoun", "RoadMap", "FindOut", "Worldwide", "WrongNegative"]
     /// Single rules from other kinds that are worth having
     static let extraRules: Set<String> = ["CapitalizePersonalPronouns", "ItsContraction", "ItsPossessive"]
 
@@ -44,6 +47,13 @@ enum HarperGrammar {
                   // several different fixes ("apart from" or "a part of"?) means Harper is guessing
                   suggestions.count == 1 || extraRules.contains(rule),
                   var replacement = replacementText(first) else { continue }
+            // a fix that adds words is Harper rewriting, not fixing
+            if wordCount(replacement) > wordCount(String(String.UnicodeScalarView(scalars[start..<end]))) { continue }
+            // acronyms, codes and numbers confuse Harper ("an RPM", "v2 files"); "a"/"an" is judged by the word after it
+            var touched = String.UnicodeScalarView(wholeWords(scalars, start, end))
+            if rule == "AnA" { touched.append(contentsOf: " ".unicodeScalars); touched.append(contentsOf: nextWord(scalars, end)) }
+            let touchedWords = String(touched).split(whereSeparator: { $0.isWhitespace }) + replacement.split(whereSeparator: { $0.isWhitespace })
+            if touchedWords.contains(where: isCodeLike) { continue }
             if curly { replacement = replacement.replacingOccurrences(of: "'", with: "’") }
             // keep a capital the writer typed ("Apart" stays capitalised)
             if scalars[start].properties.isUppercase, let c = replacement.first, c.isLowercase {
@@ -60,6 +70,34 @@ enum HarperGrammar {
         var out = String.UnicodeScalarView()
         out.append(contentsOf: scalars)
         return String(out)
+    }
+
+    /// Whitespace-separated words in the text
+    static func wordCount(_ s: String) -> Int { s.split(whereSeparator: { $0.isWhitespace }).count }
+
+    /// The scalars from start to end, widened to whole whitespace-separated tokens
+    static func wholeWords(_ s: [Unicode.Scalar], _ start: Int, _ end: Int) -> [Unicode.Scalar] {
+        var a = start, b = end
+        while a > 0, !s[a - 1].properties.isWhitespace { a -= 1 }
+        while b < s.count, !s[b].properties.isWhitespace { b += 1 }
+        return Array(s[a..<b])
+    }
+
+    /// The token after position `end`, or nothing
+    static func nextWord(_ s: [Unicode.Scalar], _ end: Int) -> String.UnicodeScalarView {
+        var i = end
+        while i < s.count, s[i].properties.isWhitespace { i += 1 }
+        var j = i
+        while j < s.count, !s[j].properties.isWhitespace { j += 1 }
+        var v = String.UnicodeScalarView()
+        v.append(contentsOf: s[i..<j])
+        return v
+    }
+
+    /// An all-caps token (2+ letters) or one with a digit
+    static func isCodeLike(_ token: Substring) -> Bool {
+        let letters = token.filter { $0.isLetter }
+        return token.contains { $0.isNumber } || (letters.count >= 2 && letters.allSatisfy { $0.isUppercase })
     }
 
     /// "Replace with: “were”" -> "were" (other kinds of suggestion are skipped)
