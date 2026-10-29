@@ -334,7 +334,7 @@ class FastTypoEngine {
         for rule in UserDictionaryStore.shared.customRules where rule.replacement.lowercased() == lower { return true }
         if lower.count == 1 { return lower == "a" || lower == "i" }
         let model = WordModel.shared
-        if model.isLoaded { return model.contains(lower) }
+        if model.isLoaded { return model.contains(lower) || model.containsSpellingVariant(lower) }
         return spellCheckerKnows(word)   // fallback if the word lists are missing
     }
 
@@ -428,7 +428,7 @@ class FastTypoEngine {
         let t = Self.tuning
         var best: Candidate?
         var runnerUp = Double.infinity
-        for c in pool {
+        for c in pool.sorted() {   // sorted: the same answer every run (Set order is random)
             let target = WordModel.bareContractions[c] ?? c
             let key = target.lowercased()
             var cost = weightedEditDistance(from: word, to: c)
@@ -466,7 +466,20 @@ class FastTypoEngine {
             c.last == word.last ? 1 : 0,
             c.count == word.count + 1 && c.hasPrefix(word) ? 1 : 0,
             WordModel.contractions.contains(key) ? 1 : 0,
+            prev.map { pairAssociation($0, key) } ?? 0,
+            next.map { pairAssociation(key, $0) } ?? 0,
+            prev.map { m.pairLog($0, key) == nil ? 1 : 0 } ?? 0,
+            next.map { m.pairLog(key, $0) == nil ? 1 : 0 } ?? 0,
+            Double(max(0, 5.5 - (m.logFrequency(key) ?? 5))),
         ]
+    }
+
+    /// How much more often two words appear together than chance would give (log10 scale, 0 if the pair is unknown).
+    /// Unlike pairStrength it doesn't reward common words just for being common.
+    func pairAssociation(_ a: String, _ b: String) -> Double {
+        let m = WordModel.shared
+        guard let pair = m.pairLog(a, b), let fa = m.logFrequency(a), let fb = m.logFrequency(b) else { return 0 }
+        return Double(min(4, max(-2, pair - fa - fb + 12)))
     }
 
     /// For training the ranker: every candidate within reach of a typed word, with its facts
@@ -478,7 +491,7 @@ class FastTypoEngine {
         if !has(pool) && word.count >= Self.tuning.deepSearchMinLength { pool.formUnion(candidates3(for: word)) }
         guard pool.count >= 2, has(pool) else { return nil }
         var keys: [String] = [], feats: [[Double]] = []
-        for c in pool {
+        for c in pool.sorted() {   // sorted: the same answer every run (Set order is random)
             let key = (WordModel.bareContractions[c] ?? c).lowercased()
             var cost = weightedEditDistance(from: word, to: c)
             if c.count == word.count + 1 && c.hasPrefix(word) { cost = min(cost, Self.tuning.lastKeyNotReached) }
@@ -492,7 +505,7 @@ class FastTypoEngine {
         c.cost > Self.tuning.tieCost && c.runnerUpGap < Self.tuning.tieMargin
     }
 
-    /// The 11 facts the learned fix gate weighs, for fixing `word` (as typed) to candidate `c`
+    /// The 12 facts the learned fix gate weighs, for fixing `word` (as typed) to candidate `c`
     func gateFeatures(_ word: String, _ c: Candidate, prev: String?, next: String?, original: String) -> [Double] {
         let m = WordModel.shared
         let key = c.word.lowercased()
@@ -509,7 +522,21 @@ class FastTypoEngine {
             spellCheckerKnows(original) ? 1 : 0,
             original.first?.isUppercase == true ? 1 : 0,
             WordModel.contractions.contains(key) ? 1 : 0,
+            inflectedStemFrequency(word),
         ]
+    }
+
+    /// If the typed word looks like a known word plus a common ending ("colors", "app's", "bundled"),
+    /// how common that stem is (0 if not). Such words are often correct, just missing from the list.
+    func inflectedStemFrequency(_ word: String) -> Double {
+        let m = WordModel.shared
+        var best: Float = 0
+        for suffix in ["'s", "s'", "s", "es", "ed", "d", "ing", "er", "ers", "ly", "ness", "ment"] where word.hasSuffix(suffix) {
+            let stem = String(word.dropLast(suffix.count))
+            guard stem.count >= 3 else { continue }
+            for s in [stem, stem + "e"] { if let f = m.logFrequency(s), f > best { best = f } }
+        }
+        return Double(best)
     }
 
     /// For training: the best candidate for a typed word and the gate's facts about it (nil if no candidate)
@@ -856,6 +883,8 @@ class FastTypoEngine {
         var result: [Token] = []
         var i = 0
         let model = WordModel.shared
+        // Apostrophes may sit inside either half ("w e'll", "i t's", "you'r e")
+        func isApostrophe(_ c: Character) -> Bool { c == "'" || c == "’" }
 
         while i < tokens.count {
             if i + 1 < tokens.count {
@@ -866,8 +895,8 @@ class FastTypoEngine {
                 // Capitals mean names, variables or languages ("X is", "in C mode"): never glue those.
                 // Only the usual capital at the start of the first word is allowed ("Thn k").
                 let eligible = t1.suf.isEmpty && t2.pre.isEmpty && w1.count + w2.count > 2
-                    && w1.allSatisfy({ $0.isLetter }) && w2.allSatisfy({ $0.isLetter })
-                    && w1.dropFirst().allSatisfy({ $0.isLowercase }) && w2.allSatisfy({ $0.isLowercase })
+                    && w1.allSatisfy({ $0.isLetter || isApostrophe($0) }) && w2.allSatisfy({ $0.isLetter || isApostrophe($0) })
+                    && w1.dropFirst().allSatisfy({ $0.isLowercase || isApostrophe($0) }) && w2.allSatisfy({ $0.isLowercase || isApostrophe($0) })
                     && !(w1.count == 1 && w1.first!.isUppercase)
                     && !hasKnownFix(w1) && !hasKnownFix(w2)
 
@@ -875,6 +904,18 @@ class FastTypoEngine {
                     let k1 = isValidWord(w1), k2 = isValidWord(w2)
                     let orphan1 = w1.count == 1 && !k1, orphan2 = w2.count == 1 && !k2
 
+                    // "a" or "i" split off the front of a word ("a ccessed", "i nclude"): join when that makes a word
+                    if w1.count == 1, k1, !k2, w2.count >= 3, isValidWord(w1 + w2), (model.logFrequency((w1 + w2).lowercased()) ?? 0) >= 6 {
+                        result.append(Token(pre: t1.pre, core: w1 + w2, suf: t2.suf))
+                        i += 2
+                        continue
+                    }
+                    // ...or split off the end of a common word ("dat a", "comm a")
+                    if w2.count == 1, k2, !k1, isValidWord(w1 + w2), (model.logFrequency((w1 + w2).lowercased()) ?? 0) >= 6 {
+                        result.append(Token(pre: t1.pre, core: w1 + w2, suf: t2.suf))
+                        i += 2
+                        continue
+                    }
                     // A stray letter, or two broken halves: join them ("b est" -> "best", "thn k" -> "think").
                     // Only glue onto a real word if the result is exactly a word ("the b" stays apart).
                     if orphan1 || orphan2 || (!k1 && !k2) {

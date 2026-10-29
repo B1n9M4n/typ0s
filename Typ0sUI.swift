@@ -230,6 +230,8 @@ class Typ0sState: ObservableObject {
     @Published var fixMode: FixGate.Mode { didSet { d.set(fixMode.rawValue, forKey: "fixMode"); FixGate.mode = fixMode } }
     /// a/an, doubled words, "could of", and stray punctuation like "I think. the"
     @Published var lightGrammar: Bool { didSet { d.set(lightGrammar, forKey: "lightGrammar"); FastTypoEngine.grammarEnabled = lightGrammar } }
+    /// Fuller grammar from Harper ("we was" -> "we were"), when harper-cli is installed
+    @Published var harperGrammar: Bool { didSet { d.set(harperGrammar, forKey: "harperGrammar"); HarperGrammar.enabled = harperGrammar } }
 
     enum AppearanceMode: Int, CaseIterable { case auto, light, dark }
 
@@ -264,8 +266,10 @@ class Typ0sState: ObservableObject {
         appearance = AppearanceMode(rawValue: d.integer(forKey: "appearance")) ?? .auto
         fixMode = FixGate.Mode(rawValue: d.string(forKey: "fixMode") ?? "") ?? .bold
         lightGrammar = d.object(forKey: "lightGrammar") as? Bool ?? true
+        harperGrammar = d.object(forKey: "harperGrammar") as? Bool ?? HarperGrammar.isAvailable
         FixGate.mode = fixMode
         FastTypoEngine.grammarEnabled = lightGrammar
+        HarperGrammar.enabled = harperGrammar
     }
 
     var usingExternalProfile: Bool {
@@ -773,6 +777,14 @@ struct HotkeysTab: View {
                     Toggle("Floating pill (menu bar icon otherwise)", isOn: $state.showFloatingPill)
                     Toggle("Sounds", isOn: $state.playSounds)
                     Toggle("Light grammar (a/an, “the the”, stray periods)", isOn: $state.lightGrammar)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Toggle("Grammar check by Harper (“we was” → “we were”)", isOn: $state.harperGrammar)
+                            .disabled(!HarperGrammar.isAvailable)
+                        if !HarperGrammar.isAvailable {
+                            Text("Install Harper first: brew install harper")
+                                .font(.nm(10)).foregroundColor(.nmMuted)
+                        }
+                    }
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Fixing").font(.nm(13)).foregroundColor(.nmInk)
@@ -996,9 +1008,16 @@ struct TestTab: View {
 
     private func fix() {
         let before = text
-        let t0 = CFAbsoluteTimeGetCurrent()
-        let after = FastTypoEngine().correctText(before)
-        ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+        DispatchQueue.global(qos: .userInitiated).async {   // Harper's grammar check takes ~0.3 s
+            let t0 = CFAbsoluteTimeGetCurrent()
+            let after = FastTypoEngine().fixAll(before)
+            let elapsed = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+            DispatchQueue.main.async { show(before: before, after: after, ms: elapsed) }
+        }
+    }
+
+    private func show(before: String, after: String, ms elapsed: Double) {
+        ms = elapsed
         text = after
         if let clean = classicClean { score = TypoInjector.score(clean: clean, fixed: after, slips: injected) }
 

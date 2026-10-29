@@ -67,6 +67,28 @@ final class WordModel {
 
     func contains(_ word: String) -> Bool { words[word] != nil }
 
+    /// A US/UK spelling of a listed word ("analyze" for "analyse", "favorite" for "favourite"):
+    /// the lists lean one way, so the other spelling is a correct word too, not a typo
+    func containsSpellingVariant(_ word: String) -> Bool {
+        guard word.count >= 6 else { return false }
+        let pairs = [("ize", "ise"), ("ise", "ize"), ("yze", "yse"), ("yse", "yze")]
+        for (a, b) in pairs where word.contains(a) {
+            if contains(word.replacingOccurrences(of: a, with: b)) { return true }
+        }
+        let c = Array(word)
+        for i in 3..<(c.count - 1) where c[i] == "o" && c[i + 1] == "r" {   // or -> our
+            var v = c; v.insert("u", at: i + 1)
+            if contains(String(v)) { return true }
+        }
+        if c.count >= 7 {
+            for i in 3..<(c.count - 2) where c[i] == "o" && c[i + 1] == "u" && c[i + 2] == "r" {   // our -> or
+                var v = c; v.remove(at: i + 1)
+                if contains(String(v)) { return true }
+            }
+        }
+        return false
+    }
+
     /// log10 frequency, or nil for words not in the list
     func logFrequency(_ word: String) -> Float? { words[word] }
 

@@ -4,8 +4,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-SOURCES=(Typ0sApp.swift Typ0sUI.swift FastTypoEngine.swift WordModel.swift FixGate.swift RankModel.swift)
-VERSION="0.3.0"
+SOURCES=(Typ0sApp.swift Typ0sUI.swift FastTypoEngine.swift WordModel.swift FixGate.swift RankModel.swift HarperGrammar.swift)
+VERSION="0.4.0"
 MIN_MACOS="14.0"
 OUT="build"
 APP="$OUT/typ0s.app"
@@ -23,6 +23,19 @@ rm "$OUT/typ0s-arm64" "$OUT/typ0s-x86_64"
 echo "→ Adding the word lists…"
 mkdir -p "$APP/Contents/Resources/Dictionary"
 cp Dictionary/words.txt Dictionary/bigrams.txt Dictionary/LICENSE.md "$APP/Contents/Resources/Dictionary/"
+
+# Harper grammar checker (Apache-2.0), if installed with `brew install harper`; it's Apple Silicon only
+HARPER="$(command -v harper-cli || true)"
+if [ -n "$HARPER" ]; then
+  echo "→ Adding the Harper grammar checker…"
+  HARPER="$(realpath "$HARPER")"
+  mkdir -p "$APP/Contents/Helpers"
+  cp "$HARPER" "$APP/Contents/Helpers/harper-cli"
+  chmod u+w "$APP/Contents/Helpers/harper-cli"
+  HARPER_LICENSE="$(dirname "$HARPER")/../LICENSE"
+  if [ -f "$HARPER_LICENSE" ]; then cp "$HARPER_LICENSE" "$APP/Contents/Resources/Harper-LICENSE"
+  else echo "  warning: Harper's LICENSE not found next to $HARPER; add it to the app by hand before sharing"; fi
+fi
 
 echo "→ Drawing the app icon…"
 ICONSET="$OUT/AppIcon.iconset"
@@ -48,7 +61,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
-    <key>CFBundleVersion</key><string>3</string>
+    <key>CFBundleVersion</key><string>4</string>
     <key>LSMinimumSystemVersion</key><string>$MIN_MACOS</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
@@ -61,11 +74,13 @@ PLIST
 SIGN_ID="typ0s Local Signing"
 if security find-identity -p codesigning 2>/dev/null | grep -q "\"$SIGN_ID\""; then
   echo "→ Signing with \"$SIGN_ID\"…"
-  codesign --force --sign "$SIGN_ID" "$APP"
 else
   echo "→ Signing (ad-hoc)…"
-  codesign --force --sign - "$APP" >/dev/null 2>&1
+  SIGN_ID="-"
 fi
+# The bundled helper is signed ad-hoc; the app around it gets the stable identity
+if [ -f "$APP/Contents/Helpers/harper-cli" ]; then codesign --force --sign - "$APP/Contents/Helpers/harper-cli"; fi
+codesign --force --sign "$SIGN_ID" "$APP"
 
 echo "→ Zipping for sharing…"
 ditto -c -k --norsrc --keepParent "$APP" "$OUT/typ0s-$VERSION.zip"
