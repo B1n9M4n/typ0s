@@ -207,11 +207,11 @@ struct RetroKey: View {
                           width: 16, bar: 3)
                 Text(label)
                     .font(.retro(20))
-                    .foregroundColor(Retro.cream.opacity(inUse ? 1 : 0.55))
+                    .foregroundColor(Retro.cream.opacity(inUse ? 1 : 0.72))
                     .retroGlow(Retro.cream, inUse ? 1 : 0)
             }
             .padding(.horizontal, 10).padding(.vertical, 3)
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(inUse ? hue : Retro.cream.opacity(0.35), lineWidth: 2))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(inUse ? hue : Retro.cream.opacity(0.5), lineWidth: 2))
             .retroGlow(hue, inUse ? 0.7 : 0)
             .contentShape(Rectangle())
         }
@@ -304,7 +304,7 @@ struct RetroSettingsTab: View {
         return Button { withAnimation(.easeOut(duration: 0.15)) { state.fixMode = mode } } label: {
             Text(word)
                 .font(.retro(22))
-                .foregroundColor(chosen ? Pastel.tangerineHex : Retro.cream.opacity(0.4))
+                .foregroundColor(chosen ? Pastel.tangerineHex : Retro.cream.opacity(0.62))
                 .underline(chosen, color: Pastel.tangerineHex)
                 .retroGlow(Pastel.tangerineHex, chosen ? 1 : 0)
         }
