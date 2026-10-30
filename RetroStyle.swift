@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Retro settings
 // 80s retro-futurism: glowing cream type on a black CRT, rainbow stripe bands, outlined badges,
-// slowly drifting colour behind the glass, and the main settings read as one sentence.
+// and the main settings read as one sentence.
 
 extension Font {
     /// Heavy condensed display face, like an 80s logo badge
@@ -15,12 +15,20 @@ extension Font {
     }
 }
 
-/// Black screen, phosphor cream, and the rainbow stripes
+/// Black screen, phosphor cream, and the four rainbow stripes
 enum Retro {
-    static let screen = Color(red: 0.035, green: 0.032, blue: 0.028)
-    static let cream = Pastel.vintageWhite
-    static let sun = Color(red: 0.96, green: 0.77, blue: 0.20)
-    static let stripes: [Color] = [Pastel.tomatoHex, Pastel.tangerineHex, sun, Pastel.turquoiseHex]
+    static let screen = Color(red: 0.02, green: 0.02, blue: 0.02)
+    static let cream = Color(red: 0.95, green: 0.93, blue: 0.86)
+    static let red = Color(red: 0.95, green: 0.22, blue: 0.17)
+    static let orange = Color(red: 0.98, green: 0.52, blue: 0.13)
+    static let yellow = Color(red: 0.99, green: 0.81, blue: 0.20)
+    static let cyan = Color(red: 0.13, green: 0.80, blue: 0.92)
+    static let stripes: [Color] = [red, orange, yellow, cyan]
+}
+
+extension Notification.Name {
+    /// Posted when the settings window opens, so the screen can power on
+    static let typ0sSettingsOpened = Notification.Name("typ0sSettingsOpened")
 }
 
 extension View {
@@ -31,13 +39,12 @@ extension View {
     }
 }
 
-/// Black screen with the colour patches drifting faintly behind it, and a lift in the middle like a lit tube
+/// Black screen with a faint lift in the middle, like a lit tube
 struct RetroBackdrop: View {
     var body: some View {
         ZStack {
             Retro.screen
-            PastelBackdrop().opacity(0.32)
-            RadialGradient(colors: [Retro.cream.opacity(0.05), .clear], center: .center, startRadius: 0, endRadius: 420)
+            RadialGradient(colors: [Retro.cream.opacity(0.04), .clear], center: .center, startRadius: 0, endRadius: 420)
         }
     }
 }
@@ -114,7 +121,7 @@ struct RetroTabs: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             FlowingGradient(colors: Retro.stripes, duration: 9)
                 .frame(height: 2)
-                .retroGlow(Pastel.tangerineHex, 0.5)
+                .retroGlow(Retro.orange, 0.5)
         }
     }
 }
@@ -156,9 +163,9 @@ struct RetroToggleStyle: ToggleStyle {
                 RoundedRectangle(cornerRadius: 3).stroke(Retro.cream.opacity(configuration.isOn ? 0.9 : 0.35), lineWidth: 1.5)
                     .frame(width: 44, height: 20)
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(configuration.isOn ? Pastel.turquoiseHex : Retro.cream.opacity(0.3))
+                    .fill(configuration.isOn ? Retro.cyan : Retro.cream.opacity(0.3))
                     .frame(width: 18, height: 12)
-                    .retroGlow(Pastel.turquoiseHex, configuration.isOn ? 1 : 0)
+                    .retroGlow(Retro.cyan, configuration.isOn ? 1 : 0)
                     .padding(.horizontal, 4)
             }
             .animation(.easeOut(duration: 0.12), value: configuration.isOn)
@@ -190,7 +197,7 @@ struct RetroKey: View {
     let target: Typ0sState.RecordingTarget
     var inUse: Bool
 
-    private var hue: Color { target == .mac ? Pastel.tomatoHex : Pastel.turquoiseHex }
+    private var hue: Color { target == .mac ? Retro.red : Retro.cyan }
     private var label: String {
         if state.isRecordingFor == target { return "Press a key…" }
         if state.pendingTarget == target {
@@ -203,7 +210,7 @@ struct RetroKey: View {
     var body: some View {
         Button { state.startRecording(target) } label: {
             HStack(spacing: 8) {
-                StripeFan(colors: inUse ? [hue, Pastel.tangerineHex, Retro.sun] : Array(repeating: Retro.cream.opacity(0.25), count: 3),
+                StripeFan(colors: inUse ? [hue, Retro.orange, Retro.yellow] : Array(repeating: Retro.cream.opacity(0.25), count: 3),
                           width: 16, bar: 3)
                 Text(label)
                     .font(.retro(20))
@@ -261,7 +268,7 @@ struct RetroSettingsTab: View {
                 }
                 .padding(.top, 4)
                 Text(state.fixMode == .bold ? "> Bold fixes more of your messy words" : "> Careful only fixes when it's very sure")
-                    .font(.terminal(11)).foregroundColor(Pastel.teal.ink)
+                    .font(.terminal(11)).foregroundColor(Retro.cyan)
             }
             RecordingBar()
             rows
@@ -304,9 +311,9 @@ struct RetroSettingsTab: View {
         return Button { withAnimation(.easeOut(duration: 0.15)) { state.fixMode = mode } } label: {
             Text(word)
                 .font(.retro(22))
-                .foregroundColor(chosen ? Pastel.tangerineHex : Retro.cream.opacity(0.62))
-                .underline(chosen, color: Pastel.tangerineHex)
-                .retroGlow(Pastel.tangerineHex, chosen ? 1 : 0)
+                .foregroundColor(chosen ? Retro.orange : Retro.cream.opacity(0.62))
+                .underline(chosen, color: Retro.orange)
+                .retroGlow(Retro.orange, chosen ? 1 : 0)
         }
         .buttonStyle(.plain)
     }
@@ -318,7 +325,7 @@ struct RetroSettingsTab: View {
     private func label(_ title: String, _ hint: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title).font(.retro(15)).foregroundColor(Retro.cream).retroGlow(Retro.cream, 0.5)
-            if let hint { Text(hint).font(.terminal(11)).foregroundColor(Pastel.teal.ink) }
+            if let hint { Text(hint).font(.terminal(11)).foregroundColor(Retro.cyan) }
         }
     }
 

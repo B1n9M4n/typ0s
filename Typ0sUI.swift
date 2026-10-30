@@ -652,11 +652,11 @@ struct DictionaryTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("> typ0s learns on its own: a typo you make twice is memorised, and names it doesn't know are protected after \(UserDictionaryStore.learnThreshold) uses. Press ⌘Z right after a fix and nothing from it is learned.")
-                .font(.terminal(11)).foregroundColor(Pastel.teal.ink)
+                .font(.terminal(11)).foregroundColor(Retro.cyan)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
                 field("Typo (optional)", $typo)
-                Image(systemName: "arrow.right").font(.system(size: 11, weight: .bold)).foregroundColor(Pastel.tangerineHex)
+                Image(systemName: "arrow.right").font(.system(size: 11, weight: .bold)).foregroundColor(Retro.orange)
                 field("Word", $word)
                 Button("Add") {
                     store.addRule(typo: typo, replacement: word)
@@ -677,12 +677,12 @@ struct DictionaryTab: View {
                         HStack(spacing: 8) {
                             if rule.typo.isEmpty {
                                 Text(rule.replacement).font(.retro(16)).foregroundColor(Retro.cream).retroGlow(Retro.cream, 0.4)
-                                tag(rule.learned ? "learned" : "protected", rule.learned ? Pastel.tangerineHex : Pastel.tomatoHex)
+                                tag(rule.learned ? "learned" : "protected", rule.learned ? Retro.orange : Retro.red)
                             } else {
                                 Text(rule.typo).font(.terminal(12)).foregroundColor(Retro.cream.opacity(0.6)).strikethrough()
-                                Image(systemName: "arrow.right").font(.system(size: 9, weight: .bold)).foregroundColor(Pastel.tangerineHex)
+                                Image(systemName: "arrow.right").font(.system(size: 9, weight: .bold)).foregroundColor(Retro.orange)
                                 Text(rule.replacement).font(.retro(16)).foregroundColor(Retro.cream).retroGlow(Retro.cream, 0.4)
-                                if rule.learned { tag("learned", Pastel.tangerineHex) }
+                                if rule.learned { tag("learned", Retro.orange) }
                             }
                             Spacer()
                             Button { store.removeRule(id: rule.id) } label: {
@@ -787,7 +787,7 @@ struct TestTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text(caption.uppercased()).font(.terminal(11)).foregroundColor(Pastel.teal.ink).lineLimit(1)
+                Text(caption.uppercased()).font(.terminal(11)).foregroundColor(Retro.cyan).lineLimit(1)
                 Spacer()
                 RetroSegmented(options: [(.short, "Short"), (.long, "Long"), (.classic, "Classic")], selection: $set)
             }
@@ -829,9 +829,9 @@ struct TestTab: View {
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(ms > 0 ? String(format: "%.2f ms", ms) : "— ms")
                         .font(.terminal(12))
-                        .foregroundColor(ms > 0 ? Pastel.teal.ink : Retro.cream.opacity(0.6))
+                        .foregroundColor(ms > 0 ? Retro.cyan : Retro.cream.opacity(0.6))
                     if let score {
-                        Text(score).font(.terminal(11)).foregroundColor(Pastel.tangerineHex)
+                        Text(score).font(.terminal(11)).foregroundColor(Retro.orange)
                     }
                 }
             }
@@ -878,7 +878,7 @@ struct TestTab: View {
     }
 }
 
-/// Fixed text where each replaced word lights up in fire colours, one after another, then settles
+/// Fixed text where each replaced word lights up in the rainbow stripe colours, one after another, then settles
 struct RevealText: View {
     static let duration: Double = 2.0
     let reveal: TestTab.Reveal
@@ -894,7 +894,7 @@ struct RevealText: View {
     private func attributed(elapsed: Double) -> AttributedString {
         var out = AttributedString()
         var order = 0
-        let tints = [Pastel.tomato, Pastel.teal, Pastel.tangerine]
+        let tints = Retro.stripes
         for (i, w) in reveal.words.enumerated() {
             var word = AttributedString(w.text)
             word.foregroundColor = Retro.cream
@@ -904,8 +904,8 @@ struct RevealText: View {
                 let tint = tints[order % tints.count]
                 let strength = local < 0.15 ? local / 0.15 : max(0, 1 - (local - 0.6) / 1.0)
                 if strength > 0 {
-                    word.backgroundColor = tint.fill.opacity(min(1, strength))
-                    if strength > 0.4 { word.foregroundColor = tint.ink }
+                    word.backgroundColor = tint.opacity(min(1, strength) * 0.85)
+                    if strength > 0.4 { word.foregroundColor = Retro.screen }
                 }
                 order += 1
             }
@@ -1013,7 +1013,7 @@ struct SettingsDashboardView: View {
                 RetroLogo()
                 Spacer()
                 HStack(spacing: 6) {
-                    StatusDot(on: true, color: state.usingExternalProfile ? Pastel.turquoiseHex : Pastel.tomatoHex)
+                    StatusDot(on: true, color: state.usingExternalProfile ? Retro.cyan : Retro.red)
                     Text(state.detectedKeyboardName.uppercased())
                         .font(.terminal(11))
                         .foregroundColor(Retro.cream.opacity(0.75))
@@ -1028,11 +1028,11 @@ struct SettingsDashboardView: View {
 
             if !state.accessibilityGranted {
                 HStack(spacing: 10) {
-                    StatusDot(on: true, color: Pastel.tangerineHex)
+                    StatusDot(on: true, color: Retro.orange)
                     Text("> Hotkeys need Accessibility permission")
                         .font(.terminal(12))
-                        .foregroundColor(Pastel.tangerineHex)
-                        .retroGlow(Pastel.tangerineHex, 0.5)
+                        .foregroundColor(Retro.orange)
+                        .retroGlow(Retro.orange, 0.5)
                     Spacer()
                     Button("Grant access") {
                         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
