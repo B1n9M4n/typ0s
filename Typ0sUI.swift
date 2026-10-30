@@ -1005,8 +1005,8 @@ struct SettingsDashboardView: View {
                 HStack(spacing: 6) {
                     StatusDot(on: true, color: state.usingExternalProfile ? Pastel.turquoiseHex : Pastel.tomatoHex)
                     Text(state.detectedKeyboardName.uppercased())
-                        .font(.terminal(10))
-                        .foregroundColor(Retro.cream.opacity(0.6))
+                        .font(.terminal(11))
+                        .foregroundColor(Retro.cream.opacity(0.75))
                         .lineLimit(1)
                 }
             }

@@ -261,7 +261,7 @@ struct RetroSettingsTab: View {
                 }
                 .padding(.top, 4)
                 Text(state.fixMode == .bold ? "> Bold fixes more of your messy words" : "> Careful only fixes when it's very sure")
-                    .font(.terminal(11)).foregroundColor(Pastel.turquoiseHex)
+                    .font(.terminal(11)).foregroundColor(Pastel.teal.ink)
             }
             RecordingBar()
             rows
@@ -318,7 +318,7 @@ struct RetroSettingsTab: View {
     private func label(_ title: String, _ hint: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title).font(.retro(15)).foregroundColor(Retro.cream).retroGlow(Retro.cream, 0.5)
-            if let hint { Text(hint).font(.terminal(10)).foregroundColor(Pastel.turquoiseHex.opacity(0.9)) }
+            if let hint { Text(hint).font(.terminal(11)).foregroundColor(Pastel.teal.ink) }
         }
     }
 
