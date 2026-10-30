@@ -1,0 +1,340 @@
+import SwiftUI
+
+// MARK: - Retro settings
+// 80s retro-futurism: glowing cream type on a black CRT, rainbow stripe bands, outlined badges,
+// slowly drifting colour behind the glass, and the main settings read as one sentence.
+
+extension Font {
+    /// Heavy condensed display face, like an 80s logo badge
+    static func retro(_ size: CGFloat) -> Font {
+        .custom("Futura-CondensedExtraBold", size: size)
+    }
+    /// Terminal text for the small print
+    static func terminal(_ size: CGFloat) -> Font {
+        .system(size: size, weight: .medium, design: .monospaced)
+    }
+}
+
+/// Black screen, phosphor cream, and the rainbow stripes
+enum Retro {
+    static let screen = Color(red: 0.035, green: 0.032, blue: 0.028)
+    static let cream = Pastel.vintageWhite
+    static let sun = Color(red: 0.96, green: 0.77, blue: 0.20)
+    static let stripes: [Color] = [Pastel.tomatoHex, Pastel.tangerineHex, sun, Pastel.turquoiseHex]
+}
+
+extension View {
+    /// Phosphor bloom, as if the colour were lit on a CRT
+    func retroGlow(_ color: Color = Retro.cream, _ strength: Double = 1) -> some View {
+        shadow(color: color.opacity(0.55 * strength), radius: 2.5)
+            .shadow(color: color.opacity(0.25 * strength), radius: 9)
+    }
+}
+
+/// Black screen with the colour patches drifting faintly behind it, and a lift in the middle like a lit tube
+struct RetroBackdrop: View {
+    var body: some View {
+        ZStack {
+            Retro.screen
+            PastelBackdrop().opacity(0.32)
+            RadialGradient(colors: [Retro.cream.opacity(0.05), .clear], center: .center, startRadius: 0, endRadius: 420)
+        }
+    }
+}
+
+/// The tube itself: fixed scanlines, a bright band rolling slowly down, a faint flicker and dark corners
+struct CRTOverlay: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { ctx in
+            let t = reduceMotion ? 0 : ctx.date.timeIntervalSinceReferenceDate
+            Canvas { g, size in
+                var y: CGFloat = 0
+                while y < size.height {
+                    g.fill(Path(CGRect(x: 0, y: y, width: size.width, height: 1)), with: .color(.black.opacity(0.22)))
+                    y += 3
+                }
+                if !reduceMotion {
+                    // Rolling band: one pass every 7 seconds
+                    let band: CGFloat = 90
+                    let by = CGFloat(t.truncatingRemainder(dividingBy: 7) / 7) * (size.height + band) - band
+                    g.fill(Path(CGRect(x: 0, y: by, width: size.width, height: band)),
+                           with: .linearGradient(Gradient(colors: [.clear, Retro.cream.opacity(0.045), .clear]),
+                                                 startPoint: CGPoint(x: 0, y: by), endPoint: CGPoint(x: 0, y: by + band)))
+                    // Flicker: a barely-there brightness wobble
+                    let flicker = 0.015 * (sin(t * 37) + sin(t * 23)) / 2
+                    g.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Retro.cream.opacity(max(0, flicker))))
+                }
+            }
+            .overlay(RadialGradient(colors: [.clear, .black.opacity(0.35)], center: .center,
+                                    startRadius: 260, endRadius: 520))
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// Stacked colour bars that taper toward the leading edge, the 80s logo stripe
+struct StripeFan: View {
+    var colors: [Color] = Retro.stripes
+    var width: CGFloat = 34
+    var bar: CGFloat = 4
+    var body: some View {
+        VStack(alignment: .trailing, spacing: bar * 0.6) {
+            ForEach(Array(colors.enumerated()), id: \.offset) { i, c in
+                Rectangle().fill(c)
+                    .frame(width: width * (0.55 + 0.15 * CGFloat(i)), height: bar)
+                    .retroGlow(c, 0.6)
+            }
+        }
+    }
+}
+
+/// The title: stripe fan running into an outlined badge
+struct RetroLogo: View {
+    var body: some View {
+        HStack(spacing: 0) {
+            StripeFan(width: 30, bar: 4)
+            Text("typ0s")
+                .font(.retro(26))
+                .foregroundColor(Retro.cream)
+                .retroGlow()
+                .padding(.horizontal, 10).padding(.vertical, 1)
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(Retro.cream, lineWidth: 2).retroGlow())
+        }
+    }
+}
+
+/// Tabs as outlined badges, the chosen one lit, over a stripe rule whose colours slowly flow
+struct RetroTabs: View {
+    @Binding var tab: SettingsTab
+    var body: some View {
+        VStack(spacing: 10) {
+            RetroSegmented(options: SettingsTab.allCases.map { ($0, $0.rawValue) }, selection: $tab, size: 15)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            FlowingGradient(colors: Retro.stripes, duration: 9)
+                .frame(height: 2)
+                .retroGlow(Pastel.tangerineHex, 0.5)
+        }
+    }
+}
+
+/// Outlined boxes side by side; the chosen one lights up cream
+struct RetroSegmented<T: Hashable>: View {
+    let options: [(T, String)]
+    @Binding var selection: T
+    var size: CGFloat = 13
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(options, id: \.0) { value, label in
+                let chosen = selection == value
+                Button { selection = value } label: {
+                    Text(label)
+                        .font(.retro(size))
+                        .foregroundColor(chosen ? Retro.screen : Retro.cream.opacity(0.75))
+                        .padding(.horizontal, 10).padding(.vertical, 3)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(chosen ? Retro.cream : .clear))
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Retro.cream.opacity(chosen ? 1 : 0.35), lineWidth: 1.5))
+                        .retroGlow(Retro.cream, chosen ? 0.8 : 0)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+/// Square switch: an outlined slot with a block that lights turquoise when on
+struct RetroToggleStyle: ToggleStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    func makeBody(configuration: Configuration) -> some View {
+        HStack {
+            configuration.label
+            Spacer()
+            ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+                RoundedRectangle(cornerRadius: 3).stroke(Retro.cream.opacity(configuration.isOn ? 0.9 : 0.35), lineWidth: 1.5)
+                    .frame(width: 44, height: 20)
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(configuration.isOn ? Pastel.turquoiseHex : Retro.cream.opacity(0.3))
+                    .frame(width: 18, height: 12)
+                    .retroGlow(Pastel.turquoiseHex, configuration.isOn ? 1 : 0)
+                    .padding(.horizontal, 4)
+            }
+            .animation(.easeOut(duration: 0.12), value: configuration.isOn)
+            .opacity(isEnabled ? 1 : 0.4)
+            .contentShape(Rectangle())
+            .onTapGesture { if isEnabled { configuration.isOn.toggle() } }
+        }
+    }
+}
+
+/// Outlined cream button; lit for the main action
+struct RetroButtonStyle: ButtonStyle {
+    var lit = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.retro(14))
+            .foregroundColor(lit ? Retro.screen : Retro.cream)
+            .padding(.horizontal, 14).padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 4).fill(lit ? Retro.cream : .clear))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Retro.cream, lineWidth: 1.5))
+            .retroGlow(Retro.cream, 0.7)
+            .opacity(configuration.isPressed ? 0.6 : 1)
+    }
+}
+
+/// A hotkey as an outlined key badge: click it, then press the new hotkey. Lit in the keyboard's colour when in use.
+struct RetroKey: View {
+    @ObservedObject var state = Typ0sState.shared
+    let target: Typ0sState.RecordingTarget
+    var inUse: Bool
+
+    private var hue: Color { target == .mac ? Pastel.tomatoHex : Pastel.turquoiseHex }
+    private var label: String {
+        if state.isRecordingFor == target { return "Press a key…" }
+        if state.pendingTarget == target {
+            return state.hotkeyLabel(state.pendingKeyCode, flags: CGEventFlags(rawValue: state.pendingFlagsRaw),
+                                     external: target == .nuphy)
+        }
+        return state.savedHotkeyLabel(target)
+    }
+
+    var body: some View {
+        Button { state.startRecording(target) } label: {
+            HStack(spacing: 8) {
+                StripeFan(colors: inUse ? [hue, Pastel.tangerineHex, Retro.sun] : Array(repeating: Retro.cream.opacity(0.25), count: 3),
+                          width: 16, bar: 3)
+                Text(label)
+                    .font(.retro(20))
+                    .foregroundColor(Retro.cream.opacity(inUse ? 1 : 0.55))
+                    .retroGlow(Retro.cream, inUse ? 1 : 0)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 3)
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(inUse ? hue : Retro.cream.opacity(0.35), lineWidth: 2))
+            .retroGlow(hue, inUse ? 0.7 : 0)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Click, then press the new hotkey")
+    }
+}
+
+/// Save or cancel a hotkey while it's being recorded
+struct RecordingBar: View {
+    @ObservedObject var state = Typ0sState.shared
+    var body: some View {
+        if state.pendingTarget != nil || state.isRecordingFor != nil {
+            HStack(spacing: 10) {
+                Spacer()
+                Button("Cancel") { state.cancelRecording() }.buttonStyle(RetroButtonStyle())
+                if state.pendingTarget != nil {
+                    Button("Save hotkey") { state.savePending() }
+                        .buttonStyle(RetroButtonStyle(lit: true)).keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+    }
+}
+
+/// The settings tab: hotkeys and strength as one sentence, the rest as rows with dotted rules between
+struct RetroSettingsTab: View {
+    @ObservedObject var state = Typ0sState.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 12) {
+                words("Fix my writing when I press")
+                HStack(spacing: 10) {
+                    RetroKey(target: .mac, inUse: !state.usingExternalProfile)
+                    words("on the MacBook keyboard,")
+                }
+                HStack(spacing: 10) {
+                    RetroKey(target: .nuphy, inUse: state.usingExternalProfile)
+                    words(state.isNuPhyConnected ? "on \(state.detectedKeyboardName)." : "on an external keyboard.")
+                }
+                HStack(spacing: 8) {
+                    words("and fix")
+                    choice("boldly", .bold)
+                    words("or")
+                    choice("carefully", .careful)
+                }
+                .padding(.top, 4)
+                Text(state.fixMode == .bold ? "> Bold fixes more of your messy words" : "> Careful only fixes when it's very sure")
+                    .font(.terminal(11)).foregroundColor(Pastel.turquoiseHex)
+            }
+            RecordingBar()
+            rows
+        }
+    }
+
+    private var rows: some View {
+        VStack(spacing: 0) {
+            rule
+            row {
+                label("Use hotkey from")
+                Spacer()
+                RetroSegmented(options: [(.auto, "Auto"), (.external, "External"), (.builtIn, "Built-in")],
+                               selection: $state.profileMode)
+            }
+            toggle("Double-tap Right Shift", "Works as the hotkey on any keyboard", $state.doubleTapRightShiftEnabled)
+            toggle("Light grammar", "a/an, “the the”, stray periods", $state.lightGrammar)
+            toggle("Grammar check by Harper",
+                   HarperGrammar.isAvailable ? "“we was” → “we were”" : "Install Harper first: brew install harper",
+                   $state.harperGrammar)
+                .disabled(!HarperGrammar.isAvailable)
+            toggle("Floating pill", "Off: only the menu bar icon", $state.showFloatingPill)
+            toggle("Sounds", nil, $state.playSounds)
+            row {
+                label("Pill appearance", "This window is always a dark screen")
+                Spacer()
+                RetroSegmented(options: [(.auto, "Auto"), (.light, "Light"), (.dark, "Dark")], selection: $state.appearance)
+            }
+        }
+        .toggleStyle(RetroToggleStyle())
+    }
+
+    private func words(_ s: String) -> some View {
+        Text(s).font(.retro(22)).foregroundColor(Retro.cream).retroGlow(Retro.cream, 0.7)
+    }
+
+    /// A word you click to choose; the chosen one is lit and underlined in tangerine
+    private func choice(_ word: String, _ mode: FixGate.Mode) -> some View {
+        let chosen = state.fixMode == mode
+        return Button { withAnimation(.easeOut(duration: 0.15)) { state.fixMode = mode } } label: {
+            Text(word)
+                .font(.retro(22))
+                .foregroundColor(chosen ? Pastel.tangerineHex : Retro.cream.opacity(0.4))
+                .underline(chosen, color: Pastel.tangerineHex)
+                .retroGlow(Pastel.tangerineHex, chosen ? 1 : 0)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var rule: some View {
+        Line().stroke(Retro.cream.opacity(0.22), style: StrokeStyle(lineWidth: 1, dash: [2, 3])).frame(height: 1)
+    }
+
+    private func label(_ title: String, _ hint: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.retro(15)).foregroundColor(Retro.cream).retroGlow(Retro.cream, 0.5)
+            if let hint { Text(hint).font(.terminal(10)).foregroundColor(Pastel.turquoiseHex.opacity(0.9)) }
+        }
+    }
+
+    private func row<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+        VStack(spacing: 0) {
+            HStack { content() }.padding(.vertical, 11)
+            rule
+        }
+    }
+
+    private func toggle(_ title: String, _ hint: String?, _ isOn: Binding<Bool>) -> some View {
+        row { Toggle(isOn: isOn) { label(title, hint) } }
+    }
+}
+
+/// A straight horizontal line, for dashed rules
+struct Line: Shape {
+    func path(in r: CGRect) -> Path { Path { $0.move(to: CGPoint(x: 0, y: r.midY)); $0.addLine(to: CGPoint(x: r.maxX, y: r.midY)) } }
+}

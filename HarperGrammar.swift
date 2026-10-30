@@ -7,7 +7,7 @@ import Foundation
 /// freewriting shouldn't be restyled.
 enum HarperGrammar {
     /// Off unless the setting turns it on (training and tests run without it)
-    static var enabled = false
+    static var enabled = false { didSet { if enabled { warmUp() } } }
 
     /// harper-cli bundled in the app by build.sh, or one installed with Homebrew (`brew install harper`)
     static let binary: URL? = {
@@ -117,8 +117,12 @@ enum HarperGrammar {
     /// A harper-cli that exits early must not take typ0s down with a broken pipe
     private static let ignoreBrokenPipes: Void = { signal(SIGPIPE, SIG_IGN) }()
 
-    /// Runs harper-cli on the text; nil if it fails or takes longer than a second
-    static func lint(_ text: String, binary: URL) -> [[String: Any]]? {
+    /// A harper-cli that's already started and waiting for text. Starting one takes about 0.3 s
+    /// (it loads its dictionary), so one is kept ready and the next fix only pays for the lint itself.
+    private static var spare: (process: Process, input: Pipe, output: Pipe)?
+    private static let spareLock = NSLock()
+
+    private static func start(_ binary: URL) -> (process: Process, input: Pipe, output: Pipe)? {
         _ = ignoreBrokenPipes
         let p = Process()
         p.executableURL = binary
@@ -128,6 +132,26 @@ enum HarperGrammar {
         p.standardOutput = output
         p.standardError = FileHandle.nullDevice
         do { try p.run() } catch { return nil }
+        return (p, input, output)
+    }
+
+    /// Starts a waiting harper-cli in the background so the next fix doesn't wait for one
+    static func warmUp() {
+        guard enabled, let binary else { return }
+        DispatchQueue.global(qos: .utility).async {
+            spareLock.lock(); defer { spareLock.unlock() }
+            if spare == nil || spare?.process.isRunning == false { spare = start(binary) }
+        }
+    }
+
+    /// Runs harper-cli on the text; nil if it fails or takes longer than a second
+    static func lint(_ text: String, binary: URL) -> [[String: Any]]? {
+        spareLock.lock()
+        let ready = spare.flatMap { $0.process.isRunning ? $0 : nil }
+        spare = nil
+        spareLock.unlock()
+        defer { warmUp() }
+        guard let (p, input, output) = ready ?? start(binary) else { return nil }
         // Write and read at the same time, both inside the time limit
         let writer = input.fileHandleForWriting
         DispatchQueue.global(qos: .userInitiated).async {

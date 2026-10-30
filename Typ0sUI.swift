@@ -25,7 +25,7 @@ extension Color {
     static let nmLight = dynamic(rgb(1, 1, 0.97, 0.9), rgb(1, 1, 1, 0.05))
     static let nmShade = dynamic(rgb(0.50, 0.47, 0.38, 0.30), rgb(0, 0, 0, 0.55))
     static let nmInk = dynamic(rgb(0.13, 0.12, 0.10), rgb(0.90, 0.90, 0.85))
-    static let nmMuted = dynamic(rgb(0.13, 0.12, 0.10, 0.55), rgb(0.90, 0.90, 0.85, 0.5))
+    static let nmMuted = dynamic(rgb(0.13, 0.12, 0.10, 0.66), rgb(0.90, 0.90, 0.85, 0.66))   // readable over the moving backdrop
 }
 
 // Retro palette: vinyl black, tangerine, turquoise, vintage white, cherry tomato (matte, with film grain).
@@ -280,6 +280,13 @@ class Typ0sState: ObservableObject {
         }
     }
 
+    /// The saved hotkey for one keyboard, as shown on its key chip
+    func savedHotkeyLabel(_ t: RecordingTarget) -> String {
+        t == .nuphy
+            ? hotkeyLabel(nuphyKeyCode, flags: CGEventFlags(rawValue: nuphyFlagsRaw), external: true)
+            : keyCodeToString(macKeyCode, flags: CGEventFlags(rawValue: macFlagsRaw))
+    }
+
     var activeHotkeyDisplay: String {
         usingExternalProfile
             ? hotkeyLabel(nuphyKeyCode, flags: CGEventFlags(rawValue: nuphyFlagsRaw), external: true)
@@ -494,23 +501,6 @@ enum LogoImages {
     }
 }
 
-/// Raised key chip showing a hotkey, optionally tinted with a pastel pair
-struct KeyChip: View {
-    var label: String
-    var pastel: Pastel? = nil
-    var body: some View {
-        Text(label)
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
-            .foregroundColor(pastel?.ink ?? .nmInk)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .frame(minWidth: 44)
-            .background(NeuSurface(shape: RoundedRectangle(cornerRadius: 8, style: .continuous),
-                                   depth: 3, fill: pastel?.gradient ?? AnyShapeStyle(Color.nmBase),
-                                   flow: pastel?.flowColors))
-    }
-}
-
 /// Raised button that sinks into the surface when pressed; pastel pair for primary actions
 struct NeuButtonStyle: ButtonStyle {
     var pastel: Pastel? = nil
@@ -525,44 +515,6 @@ struct NeuButtonStyle: ButtonStyle {
                                    fill: pastel?.gradient ?? AnyShapeStyle(Color.nmBase),
                                    flow: pastel?.flowColors))
             .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
-    }
-}
-
-/// Inset track with a raised knob
-struct NeuToggleStyle: ToggleStyle {
-    var pastel: Pastel = .teal
-    func makeBody(configuration: Configuration) -> some View {
-        HStack {
-            configuration.label
-                .font(.nm(13))
-                .foregroundColor(.nmInk)
-            Spacer()
-            ZStack(alignment: configuration.isOn ? .trailing : .leading) {
-                NeuSurface(shape: Capsule(), inset: true, depth: 3,
-                           fill: configuration.isOn ? pastel.gradient : AnyShapeStyle(Color.nmBase),
-                           flow: configuration.isOn ? pastel.flowColors : nil)
-                    .frame(width: 42, height: 22)
-                Circle()
-                    .fill(configuration.isOn ? pastel.ink.opacity(0.7) : Color.nmRaised)
-                    .frame(width: 16, height: 16)
-                    .shadow(color: .nmShade, radius: 2, x: 1.5, y: 1.5)
-                    .shadow(color: .nmLight, radius: 2, x: -1, y: -1)
-                    .padding(3)
-            }
-            .animation(.spring(response: 0.25, dampingFraction: 0.8), value: configuration.isOn)
-            .onTapGesture { configuration.isOn.toggle() }
-        }
-    }
-}
-
-/// Raised card container
-struct NeuCard<Content: View>: View {
-    @ViewBuilder var content: Content
-    var body: some View {
-        content
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(GlassSurface(shape: RoundedRectangle(cornerRadius: 18, style: .continuous)))
     }
 }
 
@@ -689,123 +641,8 @@ struct FloatingPillView: View {
     }
 }
 
-// MARK: - Hotkey Row
-struct HotkeyRow: View {
-    @ObservedObject var state = Typ0sState.shared
-    let target: Typ0sState.RecordingTarget
-    let title: String
-    let subtitle: String
-    let pastel: Pastel
-    let active: Bool
-    let currentLabel: String
-
-    var listening: Bool { state.isRecordingFor == target }
-    var pending: Bool { state.pendingTarget == target }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            StatusDot(on: active, color: pastel.ink)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.nm(14, .semibold)).foregroundColor(.nmInk)
-                Text(subtitle).font(.nm(11)).foregroundColor(.nmMuted).lineLimit(1)
-            }
-            Spacer()
-            controls
-        }
-    }
-
-    @ViewBuilder var controls: some View {
-        if listening {
-            HStack(spacing: 10) {
-                Text("Press a key…").font(.nm(12)).foregroundColor(pastel.ink)
-                Button("Cancel") { state.cancelRecording() }
-                    .buttonStyle(NeuButtonStyle(tint: .nmMuted))
-            }
-        } else if pending {
-            HStack(spacing: 10) {
-                KeyChip(label: state.hotkeyLabel(state.pendingKeyCode, flags: CGEventFlags(rawValue: state.pendingFlagsRaw),
-                                                 external: target == .nuphy),
-                        pastel: pastel)
-                Button("Save") { state.savePending() }
-                    .buttonStyle(NeuButtonStyle(pastel: .tomato))
-                    .keyboardShortcut(.defaultAction)
-                Button("Cancel") { state.cancelRecording() }
-                    .buttonStyle(NeuButtonStyle(tint: .nmMuted))
-            }
-        } else {
-            HStack(spacing: 10) {
-                KeyChip(label: currentLabel, pastel: active ? pastel : nil)
-                Button("Change") { state.startRecording(target) }
-                    .buttonStyle(NeuButtonStyle())
-            }
-        }
-    }
-}
-
 // MARK: - Tabs
-enum SettingsTab: String, CaseIterable { case keys = "Hotkeys", dictionary = "Dictionary", test = "Test" }
-
-struct HotkeysTab: View {
-    @ObservedObject var state = Typ0sState.shared
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            NeuCard {
-                VStack(spacing: 16) {
-                    HStack {
-                        Text("Use hotkey from").font(.nm(13)).foregroundColor(.nmInk)
-                        Spacer()
-                        NeuSegmented(options: [(.auto, "Auto"), (.external, "External"), (.builtIn, "Built-in")],
-                                     selection: $state.profileMode)
-                    }
-                    HotkeyRow(target: .nuphy,
-                              title: "External",
-                              subtitle: state.isNuPhyConnected ? state.detectedKeyboardName : "Not connected",
-                              pastel: .teal,
-                              active: state.profileMode != .builtIn,
-                              currentLabel: state.hotkeyLabel(state.nuphyKeyCode, flags: CGEventFlags(rawValue: state.nuphyFlagsRaw), external: true))
-                    HotkeyRow(target: .mac,
-                              title: "Built-in",
-                              subtitle: "MacBook keyboard",
-                              pastel: .tomato,
-                              active: state.profileMode != .external,
-                              currentLabel: keyCodeToString(state.macKeyCode, flags: CGEventFlags(rawValue: state.macFlagsRaw)))
-                }
-            }
-            NeuCard {
-                VStack(spacing: 14) {
-                    Toggle("Double-tap Right Shift", isOn: $state.doubleTapRightShiftEnabled)
-                    Toggle("Floating pill (menu bar icon otherwise)", isOn: $state.showFloatingPill)
-                    Toggle("Sounds", isOn: $state.playSounds)
-                    Toggle("Light grammar (a/an, “the the”, stray periods)", isOn: $state.lightGrammar)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Toggle("Grammar check by Harper (“we was” → “we were”)", isOn: $state.harperGrammar)
-                            .disabled(!HarperGrammar.isAvailable)
-                        if !HarperGrammar.isAvailable {
-                            Text("Install Harper first: brew install harper")
-                                .font(.nm(10)).foregroundColor(.nmMuted)
-                        }
-                    }
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Fixing").font(.nm(13)).foregroundColor(.nmInk)
-                            Text(state.fixMode == .bold ? "Fixes more of your messy words" : "Only fixes when it's very sure")
-                                .font(.nm(10)).foregroundColor(.nmMuted)
-                        }
-                        Spacer()
-                        NeuSegmented(options: [(.bold, "Bold"), (.careful, "Careful")], selection: $state.fixMode)
-                    }
-                    HStack {
-                        Text("Appearance").font(.nm(13)).foregroundColor(.nmInk)
-                        Spacer()
-                        NeuSegmented(options: [(.auto, "Auto"), (.light, "Light"), (.dark, "Dark")],
-                                     selection: $state.appearance)
-                    }
-                }
-                .toggleStyle(NeuToggleStyle())
-            }
-        }
-    }
-}
+enum SettingsTab: String, CaseIterable { case keys = "Settings", dictionary = "Dictionary", test = "Test" }
 
 struct DictionaryTab: View {
     @ObservedObject var store = UserDictionaryStore.shared
@@ -1158,51 +995,26 @@ enum TypoInjector {
 struct SettingsDashboardView: View {
     @ObservedObject var state = Typ0sState.shared
     @State private var tab: SettingsTab = .keys
-    @Namespace private var tabNS
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header (sits under the transparent title bar / traffic lights)
             HStack(alignment: .center, spacing: 10) {
-                TyposLogo(size: 24, animated: true)
-                // Title text with fire colours flowing through it
-                Text("typ0s").font(.nm(20, .semibold)).foregroundStyle(.clear)   // sizes the title to the font
-                    .overlay(FlowingGradient(colors: [Pastel.tomato.ink, Pastel.tangerine.ink], duration: 5)
-                        .mask(Text("typ0s").font(.nm(20, .semibold))))
+                RetroLogo()
                 Spacer()
                 HStack(spacing: 6) {
-                    StatusDot(on: true, color: state.usingExternalProfile ? Pastel.teal.ink : Pastel.tomato.ink)
-                    Text(state.detectedKeyboardName)
-                        .font(.nm(11))
-                        .foregroundColor(.nmMuted)
+                    StatusDot(on: true, color: state.usingExternalProfile ? Pastel.turquoiseHex : Pastel.tomatoHex)
+                    Text(state.detectedKeyboardName.uppercased())
+                        .font(.terminal(10))
+                        .foregroundColor(Retro.cream.opacity(0.6))
                         .lineLimit(1)
                 }
             }
             .padding(.top, 40)
             .padding(.horizontal, 28)
 
-            // Segmented selector: inset track, raised active segment
-            HStack(spacing: 0) {
-                ForEach(SettingsTab.allCases, id: \.self) { t in
-                    Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { tab = t } } label: {
-                        Text(t.rawValue)
-                            .font(.nm(12, tab == t ? .semibold : .regular))
-                            .foregroundColor(tab == t ? .nmInk : .nmMuted)
-                            .frame(maxWidth: .infinity).padding(.vertical, 8)
-                            .background {
-                                if tab == t {
-                                    NeuSurface(shape: Capsule(), depth: 3, fill: AnyShapeStyle(Color.nmRaised))
-                                        .matchedGeometryEffect(id: "seg", in: tabNS)
-                                }
-                            }
-                            .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(5)
-            .background(GlassSurface(shape: Capsule()))
-            .padding(.horizontal, 28).padding(.top, 20)
+            RetroTabs(tab: $tab)
+                .padding(.horizontal, 28).padding(.top, 22)
 
             if !state.accessibilityGranted {
                 HStack(spacing: 10) {
@@ -1220,15 +1032,20 @@ struct SettingsDashboardView: View {
 
             Group {
                 switch tab {
-                case .keys: HotkeysTab()
-                case .dictionary: DictionaryTab()
-                case .test: TestTab()
+                // Scrolls so the last rows are never cut off; padding sits inside so card shadows aren't clipped
+                case .keys:
+                    ScrollView { RetroSettingsTab().padding(28) }
+                        .scrollIndicators(.never)
+                case .dictionary: DictionaryTab().padding(28)
+                case .test: TestTab().padding(28)
                 }
             }
-            .padding(28)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(width: 600, height: 600)
-        .background(PastelBackdrop())
+        .background(RetroBackdrop())
+        .overlay(CRTOverlay())
+        .preferredColorScheme(.dark)   // a black screen in every appearance
+        .ignoresSafeArea()   // paint under the transparent title bar too, or a dark strip shows at the top
     }
 }
