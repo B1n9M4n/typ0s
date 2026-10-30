@@ -34,8 +34,8 @@ extension Notification.Name {
 extension View {
     /// Phosphor bloom, as if the colour were lit on a CRT
     func retroGlow(_ color: Color = Retro.cream, _ strength: Double = 1) -> some View {
-        shadow(color: color.opacity(0.55 * strength), radius: 2.5)
-            .shadow(color: color.opacity(0.25 * strength), radius: 9)
+        shadow(color: color.opacity(0.35 * strength), radius: 2)
+            .shadow(color: color.opacity(0.12 * strength), radius: 8)
     }
 }
 
@@ -49,34 +49,17 @@ struct RetroBackdrop: View {
     }
 }
 
-/// The tube itself: fixed scanlines, a bright band rolling slowly down, a faint flicker and dark corners
+/// The tube itself: fine still scanlines and soft dark corners. No flicker or rolling band, so nothing distracts.
 struct CRTOverlay: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { ctx in
-            let t = reduceMotion ? 0 : ctx.date.timeIntervalSinceReferenceDate
-            Canvas { g, size in
-                var y: CGFloat = 0
-                while y < size.height {
-                    g.fill(Path(CGRect(x: 0, y: y, width: size.width, height: 1)), with: .color(.black.opacity(0.22)))
-                    y += 3
-                }
-                if !reduceMotion {
-                    // Rolling band: one pass every 7 seconds
-                    let band: CGFloat = 90
-                    let by = CGFloat(t.truncatingRemainder(dividingBy: 7) / 7) * (size.height + band) - band
-                    g.fill(Path(CGRect(x: 0, y: by, width: size.width, height: band)),
-                           with: .linearGradient(Gradient(colors: [.clear, Retro.cream.opacity(0.045), .clear]),
-                                                 startPoint: CGPoint(x: 0, y: by), endPoint: CGPoint(x: 0, y: by + band)))
-                    // Flicker: a barely-there brightness wobble
-                    let flicker = 0.015 * (sin(t * 37) + sin(t * 23)) / 2
-                    g.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Retro.cream.opacity(max(0, flicker))))
-                }
+        Canvas { g, size in
+            var y: CGFloat = 0
+            while y < size.height {
+                g.fill(Path(CGRect(x: 0, y: y, width: size.width, height: 1)), with: .color(.black.opacity(0.14)))
+                y += 3
             }
-            .overlay(RadialGradient(colors: [.clear, .black.opacity(0.35)], center: .center,
-                                    startRadius: 260, endRadius: 520))
         }
+        .overlay(RadialGradient(colors: [.clear, .black.opacity(0.3)], center: .center, startRadius: 260, endRadius: 520))
         .allowsHitTesting(false)
     }
 }
@@ -122,16 +105,15 @@ struct RetroLogo: View {
     }
 }
 
-/// Tabs as outlined badges, the chosen one lit, over a stripe rule whose colours slowly flow
+/// Tabs as outlined badges, the chosen one lit, over a still rainbow rule
 struct RetroTabs: View {
     @Binding var tab: SettingsTab
     var body: some View {
         VStack(spacing: 10) {
             RetroSegmented(options: SettingsTab.allCases.map { ($0, $0.rawValue) }, selection: $tab, size: 15)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            FlowingGradient(colors: Retro.stripes, duration: 9)
+            LinearGradient(colors: Retro.stripes, startPoint: .leading, endPoint: .trailing)
                 .frame(height: 2)
-                .retroGlow(Retro.orange, 0.5)
         }
     }
 }
@@ -227,10 +209,10 @@ struct RetroKey: View {
 
     var body: some View {
         Button { state.startRecording(target) } label: {
-            // While it waits for the new hotkey, the key blinks yellow like a cursor
-            TimelineView(.periodic(from: .now, by: 0.5)) { ctx in
-                let blinkOn = Int(ctx.date.timeIntervalSinceReferenceDate * 2) % 2 == 0
-                let edge = listening ? Retro.yellow.opacity(blinkOn ? 1 : 0.25) : (inUse ? hue : Retro.cream.opacity(0.5))
+            // While it waits for the new hotkey, the key's yellow edge pulses gently, about once a second
+            TimelineView(.periodic(from: .now, by: 0.6)) { ctx in
+                let blinkOn = Int(ctx.date.timeIntervalSinceReferenceDate / 0.6) % 2 == 0
+                let edge = listening ? Retro.yellow.opacity(blinkOn ? 1 : 0.5) : (inUse ? hue : Retro.cream.opacity(0.5))
                 HStack(spacing: 8) {
                     StripeFan(colors: inUse ? [hue, Retro.orange, Retro.yellow] : Array(repeating: Retro.cream.opacity(0.25), count: 3),
                               width: 16, bar: 3)
@@ -241,7 +223,8 @@ struct RetroKey: View {
                 }
                 .padding(.horizontal, 10).padding(.vertical, 3)
                 .overlay(RoundedRectangle(cornerRadius: 5).stroke(edge, lineWidth: 2))
-                .retroGlow(listening ? Retro.yellow : hue, listening ? (blinkOn ? 0.8 : 0) : (inUse ? 0.7 : 0))
+                .animation(.easeInOut(duration: 0.4), value: blinkOn)
+                .retroGlow(listening ? Retro.yellow : hue, listening || inUse ? 0.6 : 0)
                 .contentShape(Rectangle())
             }
         }

@@ -1059,10 +1059,9 @@ struct SettingsDashboardView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(width: 600, height: 600)
-        // CRT power-on: the picture opens out of a bright line (a plain fade with Reduce Motion)
-        .scaleEffect(x: 1, y: powered || reduceMotion ? 1 : 0.006)
-        .brightness(powered ? 0 : 0.6)
-        .opacity(powered || !reduceMotion ? 1 : 0)
+        // Opening: the picture settles in softly (a plain fade with Reduce Motion), no flash
+        .scaleEffect(x: 1, y: powered || reduceMotion ? 1 : 0.97)
+        .opacity(powered ? 1 : 0)
         .onReceive(NotificationCenter.default.publisher(for: .typ0sSettingsOpened)) { _ in powerOn() }
         .background(RetroBackdrop())
         .overlay(CRTOverlay())
@@ -1070,13 +1069,13 @@ struct SettingsDashboardView: View {
         .ignoresSafeArea()   // paint under the transparent title bar too, or a dark strip shows at the top
     }
 
-    /// Plays the power-on: the screen opens from a line, then the logo's rainbow stripes shoot out
+    /// Plays the opening: the screen settles in, then the logo's rainbow stripes draw out
     private func powerOn() {
         powered = false
         logoDrawn = false
         DispatchQueue.main.async {
-            withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .arrive(0.45)) { powered = true }
-            DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0 : 0.3)) { logoDrawn = true }
+            withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .arrive(0.3)) { powered = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0 : 0.15)) { logoDrawn = true }
         }
     }
 }
