@@ -217,6 +217,26 @@ enum WrongLayoutFixer {
         return hits > 0 && hits * 2 >= scalars.count
     }
 
+    /// True when the token can't be Thai: a vowel sign or tone mark with no consonant to sit on,
+    /// a leading vowel (เ แ โ ใ ไ) not followed by a consonant, or a vowel after ะ/ำ. English typed
+    /// on the Thai layout breaks these rules almost every time ("ฟแแรกำืะสั" = "accidently"); real Thai never does.
+    static func impossibleThai(_ token: String) -> Bool {
+        func isConsonant(_ v: UInt32) -> Bool { (0x0E01...0x0E2E).contains(v) }
+        func isLeading(_ v: UInt32) -> Bool { (0x0E40...0x0E44).contains(v) }
+        func isAboveBelowVowel(_ v: UInt32) -> Bool { v == 0x0E31 || (0x0E34...0x0E3A).contains(v) }
+        func isToneOrMark(_ v: UInt32) -> Bool { (0x0E47...0x0E4E).contains(v) }
+        let s = token.unicodeScalars.map(\.value).filter { (0x0E01...0x0E5B).contains($0) }
+        guard !s.isEmpty else { return false }
+        for (i, v) in s.enumerated() {
+            let prev = i > 0 ? s[i - 1] : nil
+            if isAboveBelowVowel(v), !(prev.map(isConsonant) ?? false) { return true }
+            if isToneOrMark(v), !(prev.map { isConsonant($0) || isAboveBelowVowel($0) } ?? false) { return true }
+            if isLeading(v), !(i + 1 < s.count && isConsonant(s[i + 1])) { return true }
+            if (v == 0x0E30 || v == 0x0E33), i == 0 { return true }   // ะ or ำ can't start a word
+        }
+        return false
+    }
+
     static func toEnglish(_ token: String) -> String {
         var out = ""
         for u in token.unicodeScalars {
@@ -684,6 +704,11 @@ class FastTypoEngine {
         if word.isEmpty { return rawWord }
         if isValidWord(word) { return letters == normalized ? rawWord : result(letters) }
         if let contraction = WordModel.bareContractions[word] { return result(contraction) }   // "dont" -> "don't"
+        // The "al" dropped before "ly", the way the word is said: "accidently" -> "accidentally", "basicly" -> "basically"
+        if word.count >= 6, word.hasSuffix("ly") {
+            let ally = String(word.dropLast(2)) + "ally"
+            if isValidWord(ally), (WordModel.shared.logFrequency(ally) ?? 0) >= 6 { return result(ally) }
+        }
 
         // A capitalised unknown word mid-sentence is probably a name: leave it
         if !sentenceStart, let first = rawWord.first, first.isUppercase { return rawWord }
@@ -1000,7 +1025,14 @@ class FastTypoEngine {
             var j = i
             while j < tokens.count && WrongLayoutFixer.looksForeign(tokens[j]) { j += 1 }
             let converted = tokens[i..<j].map(WrongLayoutFixer.toEnglish)
-            if readsAsEnglish(converted) { tokens.replaceSubrange(i..<j, with: converted) }
+            // Convert when it reads as English, or when it can't be Thai and comes out as plain letters
+            // (then the typo pass fixes its spelling: "ฟแแรกำืะสั" -> "accidently" -> "accidentally")
+            let cantBeThai = tokens[i..<j].allSatisfy(WrongLayoutFixer.impossibleThai)
+                && converted.allSatisfy { word in
+                    let core = word.trimmingCharacters(in: .punctuationCharacters)
+                    return core.count >= 2 && core.allSatisfy(\.isLetter) && core.lowercased().contains(where: "aeiouy".contains)
+                }
+            if cantBeThai || readsAsEnglish(converted) { tokens.replaceSubrange(i..<j, with: converted) }
             i = j
         }
         return tokens.joined(separator: " ")
