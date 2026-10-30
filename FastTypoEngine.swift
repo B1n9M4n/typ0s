@@ -505,7 +505,7 @@ class FastTypoEngine {
         c.cost > Self.tuning.tieCost && c.runnerUpGap < Self.tuning.tieMargin
     }
 
-    /// The 12 facts the learned fix gate weighs, for fixing `word` (as typed) to candidate `c`
+    /// The 13 facts the learned fix gate weighs, for fixing `word` (as typed) to candidate `c`
     func gateFeatures(_ word: String, _ c: Candidate, prev: String?, next: String?, original: String) -> [Double] {
         let m = WordModel.shared
         let key = c.word.lowercased()
@@ -523,7 +523,18 @@ class FastTypoEngine {
             original.first?.isUppercase == true ? 1 : 0,
             WordModel.contractions.contains(key) ? 1 : 0,
             inflectedStemFrequency(word),
+            isTwoWordsGlued(word) ? 1 : 0,
         ]
+    }
+
+    /// The typed word is two common words glued together (a compound or jargon): often not a typo
+    func isTwoWordsGlued(_ word: String) -> Bool {
+        let c = Array(word), m = WordModel.shared
+        guard c.count >= 6 else { return false }
+        for i in 3...(c.count - 3) {
+            if let a = m.logFrequency(String(c[..<i])), let b = m.logFrequency(String(c[i...])), a >= 6, b >= 6 { return true }
+        }
+        return false
     }
 
     /// If the typed word looks like a known word plus a common ending ("colors", "app's", "bundled"),
@@ -628,6 +639,9 @@ class FastTypoEngine {
         if rawWord.contains(where: { $0.isNumber }) { return rawWord }
         // URLs, emails, file names, code
         if rawWord.contains(where: { "./@:_#".contains($0) }) { return rawWord }
+        // Parentheses or braces inside a word ("size(s)") mean code or a plural marker, not a typo.
+        // Square brackets are left out: "ap[rt" is a slipped key, and the edges are stripped before this anyway
+        if rawWord.contains(where: { "(){}".contains($0) }) { return rawWord }
         // Other scripts (Thai, Chinese, ...) are real writing, not English typos
         if rawWord.unicodeScalars.contains(where: { $0.value > 0x024F && CharacterSet.letters.contains($0) }) { return rawWord }
 
@@ -658,15 +672,10 @@ class FastTypoEngine {
         // 2. Well-known misspellings
         if let direct = instantFixes[lower] { return result(direct) }
 
-        // 3. Hyphenated words: fix each part (and "AI-NLP" -> "AI/NLP")
+        // 3. Hyphenated words: fix each part, but leave short parts alone ("OBD-II", "un-flushed")
         if rawWord.contains("-") {
             let parts = rawWord.components(separatedBy: "-")
-            if parts.count == 2 && parts[0].count <= 4 && parts[1].count <= 4 &&
-               parts[0].uppercased() == parts[0] && parts[1].uppercased() == parts[1] &&
-               parts.allSatisfy({ $0.count >= 2 && $0.allSatisfy { $0.isLetter } }) {
-                return "\(parts[0])/\(parts[1])"
-            }
-            return parts.map { fixSingleWord($0, sentenceStart: sentenceStart) }.joined(separator: "-")
+            return parts.map { $0.count < 3 ? $0 : fixSingleWord($0, sentenceStart: sentenceStart) }.joined(separator: "-")
         }
 
         // 4. Letters only: keys that bled in from punctuation ("m,oving", "kep[e") are dropped
@@ -775,11 +784,16 @@ class FastTypoEngine {
     }
 
     /// Does this word start with a vowel sound ("an hour", "a university")?
-    private func startsWithVowelSound(_ word: String) -> Bool {
+    static func startsWithVowelSound(_ word: String) -> Bool {
         let w = word.lowercased()
         if ["hour", "honest", "honor", "honour", "heir"].contains(where: { w.hasPrefix($0) }) { return true }
         if ["uni", "use", "usu", "ute", "uti", "uro", "one", "once", "eu", "ewe", "ufo", "ubi"].contains(where: { w.hasPrefix($0) }) { return false }
-        return w.first.map { "aeiou".contains($0) } ?? false
+        let l = Array(w)
+        // "u" + consonant (not n, p) + vowel says "you": usability, utility, ukulele
+        if l.count >= 3, l[0] == "u", !"aeiouynp".contains(l[1]), l[1].isLetter, "aeiouy".contains(l[2]), !(l[1] == "b" && l[2] == "u") { return false }
+        // "x" + consonant (or nothing, or punctuation) is spelled out: "an xref", "an x-ray"
+        if l.first == "x", l.count < 2 || !l[1].isLetter || !"aeiouy".contains(l[1]) { return true }
+        return l.first.map { "aeiou".contains($0) } ?? false
     }
 
     /// a/an, doubled words ("the the"), "could of" -> "could have". Only near-certain rules.
@@ -809,7 +823,7 @@ class FastTypoEngine {
                 // Skip words said letter by letter (no vowel: "rpm", "sql")
                 if next.pre.isEmpty, next.core == nl, isValidWord(nl), nl.count > 1, !notNouns.contains(nl),
                    nl.contains(where: { "aeiouy".contains($0) }) {
-                    let want = startsWithVowelSound(nl) ? "an" : "a"
+                    let want = FastTypoEngine.startsWithVowelSound(nl) ? "an" : "a"
                     if lower != want { t.core = t.core.first!.isUppercase ? want.capitalized : want }
                 }
             }
@@ -931,6 +945,13 @@ class FastTypoEngine {
                             let rightFreq = model.logFrequency((w2 + tokens[i + 2].core).lowercased()) ?? 0
                             let leftFreq = model.logFrequency(left.lowercased()) ?? 0
                             if rightFreq >= leftFreq - 1 { fixed = nil }   // "gand" is too rare to beat "anything"
+                        }
+                        // A fuzzy join of two broken pieces loses to moving the space one letter ("releas eis" -> "release is"),
+                        // and is only trusted when the joined word is common ("wah rto" must not become a rare word)
+                        if let f = fixed, !isValidWord(joinedWord) {
+                            let shifts = [(w1 + String(w2.prefix(1)), String(w2.dropFirst())), (String(w1.dropLast()), String(w1.suffix(1)) + w2)]
+                            if shifts.contains(where: { isSolidPiece($0.0) && isSolidPiece($0.1) }) { fixed = nil }
+                            else if (model.logFrequency(f.lowercased()) ?? 0) < 6 { fixed = nil }
                         }
                         // Gluing a stray letter onto a correct word must not turn it into a rarer word ("in k" -> "ink")
                         if let f = fixed, k1 || k2 {
@@ -1070,7 +1091,8 @@ class FastTypoEngine {
                         if isValidWord(n) { next = n }
                     }
                     let memoKey = "\(prevWord ?? "")|\(raw)|\(next ?? "")|\(sentenceStart)"
-                    if let cached = memo[memoKey] { w = cached } else {
+                    // Right after a "." with no space ("report.epub" split at the dot, ".epub"): a file extension, leave it
+                    if pre == ".", token.core.count <= 4 { } else if let cached = memo[memoKey] { w = cached } else {
                         w = fixSingleWord(raw, prev: prevWord, next: next, sentenceStart: sentenceStart)
                         // Spelled right but maybe the wrong word: check it against its neighbours
                         if w == raw, isValidWord(raw), let alt = realWordFix(raw.lowercased(), prev: prevWord, next: next) {
