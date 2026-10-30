@@ -279,6 +279,7 @@ struct TypoTuning {
     var realWordSlipPenalty: Float = 0.7    // (used by the knob search only)
     var realWordSideMargin: Float = 2       // …and each side on its own by this much
     var realWordMaxTypedFreq: Float = 9     // very common typed words ("the", "in", "on") are never swapped
+    var realWordOneSide: Float = 6          // only one side listed for the other word (typed word's both unlisted): that side alone
     var realWordUnseenPair: Float = 7.2     // an unlisted pair may still be this common (the pair list stops near 6.8)
 }
 
@@ -897,14 +898,22 @@ class FastTypoEngine {
               let lp = model.logFrequency(p), let ln = model.logFrequency(n) else { return nil }
         let leftTyped = model.pairLog(p, word) ?? min(t.realWordUnseenPair, lp + lw - 12)
         let rightTyped = (model.pairLog(word, n) ?? min(t.realWordUnseenPair, lw + ln - 12)) - lw
+        let typedUnlisted = model.pairLog(p, word) == nil && model.pairLog(word, n) == nil
         var best: (word: String, fit: Float)?
         for c in Set(edits1(Array(word))) where c != word && isKeyboardSlip(word, c) {
-            guard let lc = model.logFrequency(c), let leftPair = model.pairLog(p, c),
-                  let rightPair = model.pairLog(c, n) else { continue }
-            let left = leftPair - leftTyped, right = (rightPair - lc) - rightTyped
-            let total = left + right
-            if left > t.realWordSideMargin && right > t.realWordSideMargin && total > t.realWordMargin
-                && (best == nil || total > best!.fit) { best = (c, total) }
+            guard let lc = model.logFrequency(c) else { continue }
+            let leftListed = model.pairLog(p, c), rightListed = model.pairLog(c, n)
+            let left = (leftListed ?? min(t.realWordUnseenPair, lp + lc - 12)) - leftTyped
+            let right = ((rightListed ?? min(t.realWordUnseenPair, lc + ln - 12)) - lc) - rightTyped
+            var score: Float?
+            if leftListed != nil && rightListed != nil {
+                if left > t.realWordSideMargin && right > t.realWordSideMargin && left + right > t.realWordMargin { score = left + right }
+            } else if typedUnlisted && leftListed != nil && left > t.realWordOneSide {
+                score = left
+            } else if typedUnlisted && rightListed != nil && right > t.realWordOneSide {
+                score = right
+            }
+            if let s = score, best == nil || s > best!.fit { best = (c, s) }
         }
         return best?.word
     }
