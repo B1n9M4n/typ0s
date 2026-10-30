@@ -896,9 +896,10 @@ class FastTypoEngine {
               (2...10).contains(word.count), word.allSatisfy({ $0.isLetter }),
               let lw = model.logFrequency(word), lw <= t.realWordMaxTypedFreq,
               let lp = model.logFrequency(p), let ln = model.logFrequency(n) else { return nil }
-        let leftTyped = model.pairLog(p, word) ?? min(t.realWordUnseenPair, lp + lw - 12)
-        let rightTyped = (model.pairLog(word, n) ?? min(t.realWordUnseenPair, lw + ln - 12)) - lw
-        let typedUnlisted = model.pairLog(p, word) == nil && model.pairLog(word, n) == nil
+        let leftTypedPair = model.pairLog(p, word), rightTypedPair = model.pairLog(word, n)
+        let leftTyped = leftTypedPair ?? min(t.realWordUnseenPair, lp + lw - 12)
+        let rightTyped = (rightTypedPair ?? min(t.realWordUnseenPair, lw + ln - 12)) - lw
+        let typedUnlisted = leftTypedPair == nil && rightTypedPair == nil
         var best: (word: String, fit: Float)?
         for c in Set(edits1(Array(word))) where c != word && isKeyboardSlip(word, c) {
             guard let lc = model.logFrequency(c) else { continue }
@@ -1133,13 +1134,16 @@ class FastTypoEngine {
                         let n = joined[idx + 1].core.lowercased()
                         if isValidWord(n) { next = n }
                     }
-                    let memoKey = "\(prevWord ?? "")|\(raw)|\(next ?? "")|\(sentenceStart)"
+                    // The real-word check only runs with no punctuation between this word and its neighbours
+                    let ctxOK = pre.isEmpty && idx > 0 && joined[idx - 1].suf.isEmpty
+                        && idx + 1 < joined.count && joined[idx + 1].pre.isEmpty
+                    let memoKey = "\(prevWord ?? "")|\(raw)|\(next ?? "")|\(sentenceStart)|\(ctxOK)"
                     // Right after a "." with no space ("report.epub" split at the dot, ".epub"): a file extension, leave it
                     if pre == ".", token.core.count <= 4 { } else if let cached = memo[memoKey] { w = cached } else {
                         w = fixSingleWord(raw, prev: prevWord, next: next, sentenceStart: sentenceStart)
                         // Spelled right but maybe the wrong word: check it against its neighbours
-                        if w == raw, raw == raw.lowercased(), pre.isEmpty, idx > 0, joined[idx - 1].suf.isEmpty,
-                           idx + 1 < joined.count, joined[idx + 1].pre.isEmpty,
+                        if w == raw, raw == raw.lowercased(), ctxOK, !baseWhitelist.contains(raw),
+                           !UserDictionaryStore.shared.customRules.contains(where: { $0.replacement.lowercased() == raw }),
                            isValidWord(raw), let alt = realWordFix(raw, prev: prevWord, next: next) {
                             w = preserveCase(original: raw, corrected: alt)
                         }
