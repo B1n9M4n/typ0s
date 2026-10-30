@@ -1005,12 +1005,15 @@ enum TypoInjector {
 struct SettingsDashboardView: View {
     @ObservedObject var state = Typ0sState.shared
     @State private var tab: SettingsTab = .keys
+    @State private var powered = true      // false for a moment while the screen powers on
+    @State private var logoDrawn = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header (sits under the transparent title bar / traffic lights)
             HStack(alignment: .center, spacing: 10) {
-                RetroLogo()
+                RetroLogo(drawn: logoDrawn)
                 Spacer()
                 HStack(spacing: 6) {
                     StatusDot(on: true, color: state.usingExternalProfile ? Retro.cyan : Retro.red)
@@ -1051,12 +1054,29 @@ struct SettingsDashboardView: View {
                 case .test: TestTab().padding(28)
                 }
             }
+            .id(tab)
+            .transition(.opacity)   // tabs crossfade as the lit tab slides over
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(width: 600, height: 600)
+        // CRT power-on: the picture opens out of a bright line (a plain fade with Reduce Motion)
+        .scaleEffect(x: 1, y: powered || reduceMotion ? 1 : 0.006)
+        .brightness(powered ? 0 : 0.6)
+        .opacity(powered || !reduceMotion ? 1 : 0)
+        .onReceive(NotificationCenter.default.publisher(for: .typ0sSettingsOpened)) { _ in powerOn() }
         .background(RetroBackdrop())
         .overlay(CRTOverlay())
         .preferredColorScheme(.dark)   // a black screen in every appearance
         .ignoresSafeArea()   // paint under the transparent title bar too, or a dark strip shows at the top
+    }
+
+    /// Plays the power-on: the screen opens from a line, then the logo's rainbow stripes shoot out
+    private func powerOn() {
+        powered = false
+        logoDrawn = false
+        DispatchQueue.main.async {
+            withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .arrive(0.45)) { powered = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0 : 0.3)) { logoDrawn = true }
+        }
     }
 }

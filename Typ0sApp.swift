@@ -158,6 +158,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         guard let window = settingsWindow else { return }
         NSApp.activate(ignoringOtherApps: true)
+        // The settings screen plays its CRT power-on each time it opens
+        if !window.isVisible { NotificationCenter.default.post(name: .typ0sSettingsOpened, object: nil) }
         
         if !window.isVisible, let target = savedSettingsFrame {
             // Expand out of the pill

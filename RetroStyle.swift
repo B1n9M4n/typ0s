@@ -81,17 +81,26 @@ struct CRTOverlay: View {
     }
 }
 
-/// Stacked colour bars that taper toward the leading edge, the 80s logo stripe
+/// Confident arrival: fast start, long soft landing
+extension Animation {
+    static func arrive(_ duration: Double) -> Animation { .timingCurve(0.16, 1, 0.3, 1, duration: duration) }
+}
+
+/// Stacked colour bars that taper toward the leading edge, the 80s logo stripe.
+/// When `drawn` turns on, the bars shoot out from the badge one after another.
 struct StripeFan: View {
     var colors: [Color] = Retro.stripes
     var width: CGFloat = 34
     var bar: CGFloat = 4
+    var drawn = true
     var body: some View {
         VStack(alignment: .trailing, spacing: bar * 0.6) {
             ForEach(Array(colors.enumerated()), id: \.offset) { i, c in
                 Rectangle().fill(c)
                     .frame(width: width * (0.55 + 0.15 * CGFloat(i)), height: bar)
                     .retroGlow(c, 0.6)
+                    .scaleEffect(x: drawn ? 1 : 0, anchor: .trailing)
+                    .animation(.arrive(0.35).delay(drawn ? Double(i) * 0.06 : 0), value: drawn)
             }
         }
     }
@@ -99,9 +108,10 @@ struct StripeFan: View {
 
 /// The title: stripe fan running into an outlined badge
 struct RetroLogo: View {
+    var drawn = true
     var body: some View {
         HStack(spacing: 0) {
-            StripeFan(width: 30, bar: 4)
+            StripeFan(width: 30, bar: 4, drawn: drawn)
             Text("typ0s")
                 .font(.retro(26))
                 .foregroundColor(Retro.cream)
@@ -126,22 +136,28 @@ struct RetroTabs: View {
     }
 }
 
-/// Outlined boxes side by side; the chosen one lights up cream
+/// Outlined boxes side by side; the chosen one lights up cream, and the light slides to a new choice
 struct RetroSegmented<T: Hashable>: View {
     let options: [(T, String)]
     @Binding var selection: T
     var size: CGFloat = 13
+    @Namespace private var ns
 
     var body: some View {
         HStack(spacing: 6) {
             ForEach(options, id: \.0) { value, label in
                 let chosen = selection == value
-                Button { selection = value } label: {
+                Button { withAnimation(.arrive(0.24)) { selection = value } } label: {
                     Text(label)
                         .font(.retro(size))
                         .foregroundColor(chosen ? Retro.screen : Retro.cream.opacity(0.75))
                         .padding(.horizontal, 10).padding(.vertical, 3)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(chosen ? Retro.cream : .clear))
+                        .background {
+                            if chosen {
+                                RoundedRectangle(cornerRadius: 4).fill(Retro.cream)
+                                    .matchedGeometryEffect(id: "lit", in: ns)
+                            }
+                        }
                         .overlay(RoundedRectangle(cornerRadius: 4).stroke(Retro.cream.opacity(chosen ? 1 : 0.35), lineWidth: 1.5))
                         .retroGlow(Retro.cream, chosen ? 0.8 : 0)
                         .contentShape(Rectangle())
@@ -207,20 +223,27 @@ struct RetroKey: View {
         return state.savedHotkeyLabel(target)
     }
 
+    private var listening: Bool { state.isRecordingFor == target }
+
     var body: some View {
         Button { state.startRecording(target) } label: {
-            HStack(spacing: 8) {
-                StripeFan(colors: inUse ? [hue, Retro.orange, Retro.yellow] : Array(repeating: Retro.cream.opacity(0.25), count: 3),
-                          width: 16, bar: 3)
-                Text(label)
-                    .font(.retro(20))
-                    .foregroundColor(Retro.cream.opacity(inUse ? 1 : 0.72))
-                    .retroGlow(Retro.cream, inUse ? 1 : 0)
+            // While it waits for the new hotkey, the key blinks yellow like a cursor
+            TimelineView(.periodic(from: .now, by: 0.5)) { ctx in
+                let blinkOn = Int(ctx.date.timeIntervalSinceReferenceDate * 2) % 2 == 0
+                let edge = listening ? Retro.yellow.opacity(blinkOn ? 1 : 0.25) : (inUse ? hue : Retro.cream.opacity(0.5))
+                HStack(spacing: 8) {
+                    StripeFan(colors: inUse ? [hue, Retro.orange, Retro.yellow] : Array(repeating: Retro.cream.opacity(0.25), count: 3),
+                              width: 16, bar: 3)
+                    Text(label)
+                        .font(.retro(20))
+                        .foregroundColor(listening ? Retro.yellow : Retro.cream.opacity(inUse ? 1 : 0.72))
+                        .retroGlow(listening ? Retro.yellow : Retro.cream, inUse || listening ? 1 : 0)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 3)
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(edge, lineWidth: 2))
+                .retroGlow(listening ? Retro.yellow : hue, listening ? (blinkOn ? 0.8 : 0) : (inUse ? 0.7 : 0))
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 10).padding(.vertical, 3)
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(inUse ? hue : Retro.cream.opacity(0.5), lineWidth: 2))
-            .retroGlow(hue, inUse ? 0.7 : 0)
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Click, then press the new hotkey")
@@ -247,6 +270,7 @@ struct RecordingBar: View {
 /// The settings tab: hotkeys and strength as one sentence, the rest as rows with dotted rules between
 struct RetroSettingsTab: View {
     @ObservedObject var state = Typ0sState.shared
+    @Namespace private var ns
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -305,15 +329,22 @@ struct RetroSettingsTab: View {
         Text(s).font(.retro(22)).foregroundColor(Retro.cream).retroGlow(Retro.cream, 0.7)
     }
 
-    /// A word you click to choose; the chosen one is lit and underlined in tangerine
+    /// A word you click to choose; the chosen one is lit, and its orange underline slides across to a new choice
     private func choice(_ word: String, _ mode: FixGate.Mode) -> some View {
         let chosen = state.fixMode == mode
-        return Button { withAnimation(.easeOut(duration: 0.15)) { state.fixMode = mode } } label: {
+        return Button { withAnimation(.arrive(0.28)) { state.fixMode = mode } } label: {
             Text(word)
                 .font(.retro(22))
                 .foregroundColor(chosen ? Retro.orange : Retro.cream.opacity(0.62))
-                .underline(chosen, color: Retro.orange)
                 .retroGlow(Retro.orange, chosen ? 1 : 0)
+                .overlay(alignment: .bottom) {
+                    if chosen {
+                        Rectangle().fill(Retro.orange).frame(height: 2)
+                            .retroGlow(Retro.orange, 0.8)
+                            .matchedGeometryEffect(id: "underline", in: ns)
+                            .offset(y: 1)
+                    }
+                }
         }
         .buttonStyle(.plain)
     }
