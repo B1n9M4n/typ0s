@@ -651,16 +651,18 @@ struct DictionaryTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Caption(text: "typ0s learns on its own: a typo you make twice is memorised, and names it doesn't know are protected after \(UserDictionaryStore.learnThreshold) uses. Press ⌘Z right after a fix and nothing from it is learned.")
+            Text("> typ0s learns on its own: a typo you make twice is memorised, and names it doesn't know are protected after \(UserDictionaryStore.learnThreshold) uses. Press ⌘Z right after a fix and nothing from it is learned.")
+                .font(.terminal(11)).foregroundColor(Pastel.teal.ink)
+                .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
                 field("Typo (optional)", $typo)
-                Image(systemName: "arrow.right").font(.system(size: 10, weight: .semibold)).foregroundColor(Pastel.tomato.ink)
+                Image(systemName: "arrow.right").font(.system(size: 11, weight: .bold)).foregroundColor(Pastel.tangerineHex)
                 field("Word", $word)
                 Button("Add") {
                     store.addRule(typo: typo, replacement: word)
                     typo = ""; word = ""
                 }
-                .buttonStyle(NeuButtonStyle(pastel: .teal))
+                .buttonStyle(RetroButtonStyle(lit: true))
                 .disabled(word.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             ScrollView {
@@ -668,27 +670,20 @@ struct DictionaryTab: View {
                     ForEach(store.customRules) { rule in
                         HStack(spacing: 8) {
                             if rule.typo.isEmpty {
-                                Text(rule.replacement).font(.nm(13, .medium)).foregroundColor(.nmInk)
-                                let tag = rule.learned ? Pastel.tangerine : Pastel.tomato
-                                Text(rule.learned ? "learned" : "protected")
-                                    .font(.nm(10, .medium)).foregroundColor(tag.ink)
-                                    .padding(.horizontal, 7).padding(.vertical, 2)
-                                    .background(Capsule().fill(tag.gradient))
+                                Text(rule.replacement).font(.retro(16)).foregroundColor(Retro.cream).retroGlow(Retro.cream, 0.4)
+                                tag(rule.learned ? "learned" : "protected", rule.learned ? Pastel.tangerineHex : Pastel.tomatoHex)
                             } else {
-                                Text(rule.typo).font(.nm(13)).foregroundColor(.nmMuted).strikethrough()
-                                Image(systemName: "arrow.right").font(.system(size: 9)).foregroundColor(Pastel.tomato.ink)
-                                Text(rule.replacement).font(.nm(13, .medium)).foregroundColor(.nmInk)
-                                if rule.learned {
-                                    Text("learned")
-                                        .font(.nm(10, .medium)).foregroundColor(Pastel.tangerine.ink)
-                                        .padding(.horizontal, 7).padding(.vertical, 2)
-                                        .background(Capsule().fill(Pastel.tangerine.gradient))
-                                }
+                                Text(rule.typo).font(.terminal(12)).foregroundColor(Retro.cream.opacity(0.6)).strikethrough()
+                                Image(systemName: "arrow.right").font(.system(size: 9, weight: .bold)).foregroundColor(Pastel.tangerineHex)
+                                Text(rule.replacement).font(.retro(16)).foregroundColor(Retro.cream).retroGlow(Retro.cream, 0.4)
+                                if rule.learned { tag("learned", Pastel.tangerineHex) }
                             }
                             Spacer()
                             Button { store.removeRule(id: rule.id) } label: {
-                                Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)).foregroundColor(.nmMuted)
-                            }.buttonStyle(.plain)
+                                Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundColor(Retro.cream.opacity(0.6))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Remove")
                         }
                         .padding(.vertical, 10)
                         .padding(.horizontal, 4)
@@ -696,7 +691,7 @@ struct DictionaryTab: View {
                 }
                 .padding(.horizontal, 12)
             }
-            .background(NeuSurface(shape: RoundedRectangle(cornerRadius: 16, style: .continuous), inset: true, depth: 5))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Retro.cream.opacity(0.3), lineWidth: 1.5))
             .frame(maxHeight: .infinity)
         }
     }
@@ -704,10 +699,18 @@ struct DictionaryTab: View {
     func field(_ placeholder: String, _ text: Binding<String>) -> some View {
         TextField(placeholder, text: text)
             .textFieldStyle(.plain)
-            .font(.nm(13))
-            .foregroundColor(.nmInk)
-            .padding(.horizontal, 12).padding(.vertical, 8)
-            .background(NeuSurface(shape: Capsule(), inset: true, depth: 3))
+            .font(.terminal(13))
+            .foregroundColor(Retro.cream)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Retro.cream.opacity(0.45), lineWidth: 1.5))
+    }
+
+    /// Small outlined tag saying where a word came from
+    func tag(_ text: String, _ color: Color) -> some View {
+        Text(text.uppercased())
+            .font(.terminal(10)).foregroundColor(color)
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .overlay(RoundedRectangle(cornerRadius: 3).stroke(color, lineWidth: 1))
     }
 }
 
@@ -777,9 +780,9 @@ struct TestTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Caption(text: caption).lineLimit(1)
+                Text(caption.uppercased()).font(.terminal(11)).foregroundColor(Pastel.teal.ink).lineLimit(1)
                 Spacer()
-                NeuSegmented(options: [(.short, "Short"), (.long, "Long"), (.classic, "Classic")], selection: $set)
+                RetroSegmented(options: [(.short, "Short"), (.long, "Long"), (.classic, "Classic")], selection: $set)
             }
             .onChange(of: set) { load(0) }
             // Hotkey fixes (⌥T, F14, Right Shift ×2) also show their time here, not just the Fix button
@@ -793,35 +796,35 @@ struct TestTab: View {
                         .onTapGesture { reveal = nil }
                 } else {
                     TextEditor(text: $text)
-                        .font(.nm(14))
-                        .foregroundColor(.nmInk)
+                        .font(.terminal(14))
+                        .foregroundColor(Retro.cream)
                         .scrollContentBackground(.hidden)
                 }
             }
             .padding(14)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(NeuSurface(shape: RoundedRectangle(cornerRadius: 16, style: .continuous), inset: true, depth: 5))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Retro.cream.opacity(0.3), lineWidth: 1.5))
 
             HStack(spacing: 12) {
                 Button("Fix", action: fix)
-                    .buttonStyle(NeuButtonStyle(pastel: .tomato))
+                    .buttonStyle(RetroButtonStyle(lit: true))
                     .keyboardShortcut(.return, modifiers: .command)
                     .help("Fix (⌘↩)")
                 Button(set == .classic ? "New slips" : "Next example") {
                     load(set == .classic ? index : (index + 1) % setCount)
                 }
-                .buttonStyle(NeuButtonStyle(tint: .nmMuted))
+                .buttonStyle(RetroButtonStyle())
                 if set == .classic {
                     Button("Next text") { load((index + 1) % setCount) }
-                        .buttonStyle(NeuButtonStyle(tint: .nmMuted))
+                        .buttonStyle(RetroButtonStyle())
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(ms > 0 ? String(format: "%.2f ms", ms) : "— ms")
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundColor(ms > 0 ? Pastel.teal.ink : .nmMuted)
+                        .font(.terminal(12))
+                        .foregroundColor(ms > 0 ? Pastel.teal.ink : Retro.cream.opacity(0.6))
                     if let score {
-                        Text(score).font(.nm(10, .medium)).foregroundColor(Pastel.tomato.ink)
+                        Text(score).font(.terminal(11)).foregroundColor(Pastel.tangerineHex)
                     }
                 }
             }
@@ -876,7 +879,7 @@ struct RevealText: View {
     var body: some View {
         TimelineView(.animation) { ctx in
             Text(attributed(elapsed: ctx.date.timeIntervalSince(reveal.start)))
-                .font(.nm(14))
+                .font(.terminal(14))   // same face as the editor, so words don't jump
                 .frame(maxWidth: .infinity, alignment: .topLeading)
         }
     }
@@ -887,7 +890,7 @@ struct RevealText: View {
         let tints = [Pastel.tomato, Pastel.teal, Pastel.tangerine]
         for (i, w) in reveal.words.enumerated() {
             var word = AttributedString(w.text)
-            word.foregroundColor = .nmInk
+            word.foregroundColor = Retro.cream
             if w.changed {
                 // Stagger each word, then fade its highlight out
                 let local = max(0, elapsed - Double(order) * 0.06)
