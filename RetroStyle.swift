@@ -299,11 +299,6 @@ struct RetroSettingsTab: View {
                 .disabled(!HarperGrammar.isAvailable)
             toggle("Floating pill", "Off: only the menu bar icon", $state.showFloatingPill)
             toggle("Sounds", nil, $state.playSounds)
-            row {
-                label("Pill appearance", "This window is always a dark screen")
-                Spacer()
-                RetroSegmented(options: [(.auto, "Auto"), (.light, "Light"), (.dark, "Dark")], selection: $state.appearance)
-            }
         }
         .toggleStyle(RetroToggleStyle())
     }

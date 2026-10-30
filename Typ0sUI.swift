@@ -225,7 +225,6 @@ class Typ0sState: ObservableObject {
     /// Which hotkey profile is live: follow the connected keyboard, or pin one manually
     enum ProfileMode: Int, CaseIterable { case auto, external, builtIn }
     @Published var playSounds: Bool { didSet { d.set(playSounds, forKey: "sounds") } }
-    @Published var appearance: AppearanceMode { didSet { d.set(appearance.rawValue, forKey: "appearance") } }
     /// Bold fixes more of your messy words; Careful only fixes when the learned model is very sure
     @Published var fixMode: FixGate.Mode { didSet { d.set(fixMode.rawValue, forKey: "fixMode"); FixGate.mode = fixMode } }
     /// a/an, doubled words, "could of", and stray punctuation like "I think. the"
@@ -233,7 +232,6 @@ class Typ0sState: ObservableObject {
     /// Fuller grammar from Harper ("we was" -> "we were"), when harper-cli is installed
     @Published var harperGrammar: Bool { didSet { d.set(harperGrammar, forKey: "harperGrammar"); HarperGrammar.enabled = harperGrammar } }
 
-    enum AppearanceMode: Int, CaseIterable { case auto, light, dark }
 
     // Hotkey recording: listen -> pending -> Save / Cancel
     @Published var isRecordingFor: RecordingTarget? = nil
@@ -263,7 +261,6 @@ class Typ0sState: ObservableObject {
             profileMode = (d.object(forKey: "autoSwitch") as? Bool ?? true) ? .auto : .builtIn
         }
         playSounds = d.object(forKey: "sounds") as? Bool ?? true
-        appearance = AppearanceMode(rawValue: d.integer(forKey: "appearance")) ?? .auto
         fixMode = FixGate.Mode(rawValue: d.string(forKey: "fixMode") ?? "") ?? .bold
         lightGrammar = d.object(forKey: "lightGrammar") as? Bool ?? true
         harperGrammar = d.object(forKey: "harperGrammar") as? Bool ?? HarperGrammar.isAvailable
@@ -560,84 +557,55 @@ struct Caption: View {
 
 // MARK: - Floating Top Pill (optional; the menu bar icon is the default status)
 
-/// Small glowing orb whose fire colours slowly swirl; brightens on a successful fix
-struct FireOrb: View {
-    var angle: Double
-    var active: Bool
-    var body: some View {
-        Circle()
-            .fill(AngularGradient(colors: Pastel.logoColors + [Pastel.logoColors[0]],
-                                  center: .center, angle: .degrees(angle * 2)))
-            .frame(width: 10, height: 10)
-            .shadow(color: Pastel.tomato.ink.opacity(active ? 0.8 : 0.35), radius: active ? 6 : 3)
-            .scaleEffect(active ? 1.2 : 1)
-    }
-}
-
-/// Frosted-glass capsule with a slowly rotating fire ring around its edge
+/// Small black pill in the retro look: rainbow stripes and "typ0s"; after a fix it shows the key and the time
 struct FloatingPillView: View {
     @ObservedObject var state = Typ0sState.shared
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var onOpenSettings: () -> Void
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { ctx in
-            let angle = reduceMotion ? 0 : (ctx.date.timeIntervalSinceReferenceDate * 24).truncatingRemainder(dividingBy: 360)
-            let ok = state.isFlashingSuccess
-            HStack(spacing: 9) {
-                FireOrb(angle: angle, active: ok)
-                HStack(spacing: 7) {
-                    if ok {
+        let ok = state.isFlashingSuccess
+        HStack(spacing: 7) {
+            StripeFan(width: 12, bar: 2)
+            Group {
+                if ok {
+                    HStack(spacing: 5) {
                         // The key that fired the fix: screen recorders can't show it, because typ0s swallows it
                         if !state.lastTriggerLabel.isEmpty {
                             Text(state.lastTriggerLabel)
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .foregroundColor(Pastel.tomato.ink)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Capsule().fill(Pastel.tomato.fill))
-                                .transition(.scale.combined(with: .opacity))
+                                .font(.terminal(9))
+                                .foregroundColor(Retro.screen)
+                                .padding(.horizontal, 4).padding(.vertical, 1)
+                                .background(RoundedRectangle(cornerRadius: 2).fill(Retro.yellow))
                         }
-                        Text(String(format: "Fixed · %.1f ms", state.lastLatencyMs))
-                            .foregroundStyle(LinearGradient(colors: [Pastel.teal.ink, Pastel.tomato.ink],
-                                                            startPoint: .leading, endPoint: .trailing))
-                    } else {
-                        Text("typ0s").foregroundStyle(Color.nmInk.opacity(0.75))
+                        Text(String(format: "%.1f ms", state.lastLatencyMs))
+                            .font(.terminal(10))
+                            .foregroundColor(Retro.cyan)
                     }
+                    .transition(.opacity)
+                } else {
+                    Text("typ0s").font(.retro(13)).foregroundColor(Retro.cream).transition(.opacity)
                 }
-                .font(.nm(11, .semibold))
-                .lineLimit(1)
-                .frame(width: 160, alignment: .leading)
-                Button(action: onOpenSettings) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(.nmMuted)
-                        .frame(width: 20, height: 20)
-                        .background(Circle().fill(Color.nmRaised.opacity(0.7)))
-                }
-                .buttonStyle(.plain)
-                .help("Open typ0s")
             }
-            .padding(.leading, 13).padding(.trailing, 6).padding(.vertical, 6)
-            .background(
-                ZStack {
-                    Capsule().fill(.ultraThinMaterial)
-                    Capsule().fill(Color.nmBase.opacity(0.55))
-                    Capsule().fill(LinearGradient(colors: [Pastel.teal.fill, Pastel.tomato.fill, Pastel.tangerine.fill],
-                                                  startPoint: .leading, endPoint: .trailing))
-                        .opacity(ok ? 0.85 : 0.25)
-                }
-            )
-            .overlay(
-                Capsule().strokeBorder(
-                    AngularGradient(colors: Pastel.logoColors + [Pastel.logoColors[0]],
-                                    center: .center, angle: .degrees(angle)),
-                    lineWidth: 1.2)
-                .opacity(ok ? 0.9 : 0.45)
-            )
-            .shadow(color: Pastel.tomato.ink.opacity(0.18), radius: 6, y: 2)
-            .padding(8) // room for the glow inside the borderless panel
-            .animation(.spring(response: 0.35, dampingFraction: 0.7), value: ok)
+            .lineLimit(1)
+            .frame(width: 74, alignment: .leading)
+            Button(action: onOpenSettings) {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundColor(Retro.cream.opacity(0.7))
+                    .frame(width: 16, height: 16)
+                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(Retro.cream.opacity(0.35), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .help("Open typ0s")
         }
+        .padding(.leading, 10).padding(.trailing, 5).padding(.vertical, 5)
+        .background(Capsule().fill(Retro.screen))
+        // The outline lights up in the rainbow for a moment after each fix
+        .overlay(Capsule().strokeBorder(ok ? AnyShapeStyle(LinearGradient(colors: Retro.stripes, startPoint: .leading, endPoint: .trailing))
+                                           : AnyShapeStyle(Retro.cream.opacity(0.3)), lineWidth: 1.2))
+        .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
+        .padding(6) // room for the shadow inside the borderless panel
+        .animation(.easeOut(duration: 0.2), value: ok)
     }
 }
 

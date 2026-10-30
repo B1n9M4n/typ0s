@@ -57,18 +57,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
-        // Auto follows the system; Light/Dark pin the whole app (window + pill)
-        state.$appearance
-            .receive(on: RunLoop.main)
-            .sink { mode in
-                switch mode {
-                case .auto: NSApp.appearance = nil
-                case .light: NSApp.appearance = NSAppearance(named: .aqua)
-                case .dark: NSApp.appearance = NSAppearance(named: .darkAqua)
-                }
-            }
-            .store(in: &cancellables)
-
         // Menu bar icon doubles as the quiet status indicator
         state.$isFlashingSuccess
             .receive(on: RunLoop.main)
@@ -98,8 +86,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     // MARK: - Top Floating Pill Window
     func setupFloatingPillWindow() {
-        let pillWidth: CGFloat = 266
-        let pillHeight: CGFloat = 48 // includes padding for the neumorphic shadows
+        let pillWidth: CGFloat = 160
+        let pillHeight: CGFloat = 38 // includes padding for the shadow
         
         let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         // Top-center, just below the menu bar (clear of the notch)
