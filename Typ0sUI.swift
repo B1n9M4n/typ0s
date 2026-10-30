@@ -667,6 +667,12 @@ struct DictionaryTab: View {
             }
             ScrollView {
                 VStack(spacing: 0) {
+                    if store.customRules.isEmpty {
+                        Text("> No words yet. Add one above, or keep writing and typ0s fills this in.")
+                            .font(.terminal(11)).foregroundColor(Retro.cream.opacity(0.7))
+                            .padding(.vertical, 14).padding(.horizontal, 4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     ForEach(store.customRules) { rule in
                         HStack(spacing: 8) {
                             if rule.typo.isEmpty {
@@ -689,6 +695,7 @@ struct DictionaryTab: View {
                         .padding(.horizontal, 4)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)   // full width even when the list is short
                 .padding(.horizontal, 12)
             }
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Retro.cream.opacity(0.3), lineWidth: 1.5))
