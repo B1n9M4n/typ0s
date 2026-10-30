@@ -274,8 +274,12 @@ struct TypoTuning {
     var tieMargin = 0.14           // …must beat the runner-up by this much
     var spellcheckerSlip = 0.5    // words macOS knows but our list doesn't: only fix slips cheaper than this
     // Real word typed as another real word ("form" -> "from"): swap only on overwhelming context
-    var realWordMargin: Float = .infinity   // how much better (log10) the other word must fit; infinity = off
-    var realWordSlipPenalty: Float = 0.7    // subtract slip cost × this from the other word's fit
+    // Picked on the fit split: log10 P(other | left word) / P(typed | left word) plus the same for the right word
+    var realWordMargin: Float = 8           // both sides together must favour the other word this much; infinity = off
+    var realWordSlipPenalty: Float = 0.7    // (used by the knob search only)
+    var realWordSideMargin: Float = 2       // …and each side on its own by this much
+    var realWordMaxTypedFreq: Float = 9     // very common typed words ("the", "in", "on") are never swapped
+    var realWordUnseenPair: Float = 7.2     // an unlisted pair may still be this common (the pair list stops near 6.8)
 }
 
 // MARK: - Typo engine: keyboard-aware edit distance + word frequency + word-pair context
@@ -882,27 +886,25 @@ class FastTypoEngine {
         return false
     }
 
-    /// How well a word fits between its neighbours (log10 pair counts; unseen pairs estimated
-    /// from how common each word is on its own, minus a penalty for never being seen together)
-    private func fit(_ w: String, prev: String, next: String) -> Float {
-        let m = WordModel.shared
-        let lw = m.logFrequency(w) ?? 3
-        let left = m.pairLog(prev, w) ?? ((m.logFrequency(prev) ?? 3) + lw - 13)
-        let right = m.pairLog(w, next) ?? (lw + (m.logFrequency(next) ?? 3) - 13)
-        return left + right
-    }
-
-    /// "form" -> "from", "beast" -> "best": only when the other word fits its neighbours overwhelmingly better
+    /// "form" -> "from", "cur" -> "cut": only when the other word fits BOTH neighbours overwhelmingly better.
+    /// The other word's pairs must both be listed; the typed word's unlisted pairs get the most generous guess.
     private func realWordFix(_ word: String, prev: String?, next: String?) -> String? {
         let t = Self.tuning
-        guard t.realWordMargin.isFinite, let p = prev, let n = next,
-              (2...10).contains(word.count), word.allSatisfy({ $0.isLetter }) else { return nil }
         let model = WordModel.shared
-        let current = fit(word, prev: p, next: n)
+        guard t.realWordMargin.isFinite, let p = prev, let n = next,
+              (2...10).contains(word.count), word.allSatisfy({ $0.isLetter }),
+              let lw = model.logFrequency(word), lw <= t.realWordMaxTypedFreq,
+              let lp = model.logFrequency(p), let ln = model.logFrequency(n) else { return nil }
+        let leftTyped = model.pairLog(p, word) ?? min(t.realWordUnseenPair, lp + lw - 12)
+        let rightTyped = (model.pairLog(word, n) ?? min(t.realWordUnseenPair, lw + ln - 12)) - lw
         var best: (word: String, fit: Float)?
-        for c in Set(edits1(Array(word))) where c != word && model.contains(c) && isKeyboardSlip(word, c) {
-            let f = fit(c, prev: p, next: n) - Float(weightedEditDistance(from: word, to: c)) * t.realWordSlipPenalty
-            if f > current + t.realWordMargin && (best == nil || f > best!.fit) { best = (c, f) }
+        for c in Set(edits1(Array(word))) where c != word && isKeyboardSlip(word, c) {
+            guard let lc = model.logFrequency(c), let leftPair = model.pairLog(p, c),
+                  let rightPair = model.pairLog(c, n) else { continue }
+            let left = leftPair - leftTyped, right = (rightPair - lc) - rightTyped
+            let total = left + right
+            if left > t.realWordSideMargin && right > t.realWordSideMargin && total > t.realWordMargin
+                && (best == nil || total > best!.fit) { best = (c, total) }
         }
         return best?.word
     }
@@ -1127,7 +1129,9 @@ class FastTypoEngine {
                     if pre == ".", token.core.count <= 4 { } else if let cached = memo[memoKey] { w = cached } else {
                         w = fixSingleWord(raw, prev: prevWord, next: next, sentenceStart: sentenceStart)
                         // Spelled right but maybe the wrong word: check it against its neighbours
-                        if w == raw, isValidWord(raw), let alt = realWordFix(raw.lowercased(), prev: prevWord, next: next) {
+                        if w == raw, raw == raw.lowercased(), pre.isEmpty, idx > 0, joined[idx - 1].suf.isEmpty,
+                           idx + 1 < joined.count, joined[idx + 1].pre.isEmpty,
+                           isValidWord(raw), let alt = realWordFix(raw, prev: prevWord, next: next) {
                             w = preserveCase(original: raw, corrected: alt)
                         }
                         memo[memoKey] = w
