@@ -275,7 +275,7 @@ struct TypoTuning {
     var spellcheckerSlip = 0.5    // words macOS knows but our list doesn't: only fix slips cheaper than this
     // Real word typed as another real word ("form" -> "from"): swap only on overwhelming context
     // Picked on the fit split: log10 P(other | left word) / P(typed | left word) plus the same for the right word
-    var realWordMargin: Float = 8           // both sides together must favour the other word this much; infinity = off
+    var realWordMargin: Float = 7           // both sides together must favour the other word this much; infinity = off
     var realWordSlipPenalty: Float = 0.7    // (used by the knob search only)
     var realWordSideMargin: Float = 2       // …and each side on its own by this much
     var realWordMaxTypedFreq: Float = 9     // very common typed words ("the", "in", "on") are never swapped
