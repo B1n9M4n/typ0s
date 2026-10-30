@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 SOURCES=(Typ0sApp.swift Typ0sUI.swift RetroStyle.swift FastTypoEngine.swift WordModel.swift FixGate.swift RankModel.swift HarperGrammar.swift)
-VERSION="0.4.0"
+VERSION="0.5.0"
 MIN_MACOS="14.0"
 OUT="build"
 APP="$OUT/typ0s.app"
@@ -61,7 +61,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
-    <key>CFBundleVersion</key><string>4</string>
+    <key>CFBundleVersion</key><string>5</string>
     <key>LSMinimumSystemVersion</key><string>$MIN_MACOS</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
