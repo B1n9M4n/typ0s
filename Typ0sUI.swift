@@ -1018,14 +1018,15 @@ struct SettingsDashboardView: View {
 
             if !state.accessibilityGranted {
                 HStack(spacing: 10) {
-                    StatusDot(on: true, color: Pastel.tangerine.ink)
-                    Text("Accessibility permission needed for hotkeys.")
-                        .font(.nm(12))
-                        .foregroundColor(.nmInk)
+                    StatusDot(on: true, color: Pastel.tangerineHex)
+                    Text("> Hotkeys need Accessibility permission")
+                        .font(.terminal(12))
+                        .foregroundColor(Pastel.tangerineHex)
+                        .retroGlow(Pastel.tangerineHex, 0.5)
                     Spacer()
-                    Button("Grant") {
+                    Button("Grant access") {
                         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-                    }.buttonStyle(NeuButtonStyle(pastel: .tangerine))
+                    }.buttonStyle(RetroButtonStyle(lit: true))
                 }
                 .padding(.horizontal, 28).padding(.top, 18)
             }
