@@ -380,7 +380,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func fire(label: String) {
         state.lastTriggerLabel = label
-        fixQueue.async { self.fixTextDirectly() }
+        // Our own text fields (the Test tab) are AppKit views in this process: AX edits to them run
+        // in-process, and AppKit crashes if that happens off the main thread
+        if NSApp.isActive { fixTextDirectly() } else { fixQueue.async { self.fixTextDirectly() } }
     }
     
     func flashPillSuccess(latencyMs: Double) {
