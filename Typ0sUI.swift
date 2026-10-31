@@ -766,19 +766,8 @@ struct TestTab: View {
             // Hotkey fixes (⌥T, F14, Right Shift ×2) also show their time here, not just the Fix button
             .onChange(of: state.lastLatencyMs) { ms = state.lastLatencyMs }
 
-            ZStack(alignment: .topLeading) {
-                if let r = reveal {
-                    RevealText(reveal: r)
-                        .padding(.horizontal, 5) // match TextEditor's inner inset so words don't jump
-                        .contentShape(Rectangle())
-                        .onTapGesture { reveal = nil }
-                } else {
-                    TextEditor(text: $text)
-                        .font(.terminal(14))
-                        .foregroundColor(Retro.cream)
-                        .scrollContentBackground(.hidden)
-                }
-            }
+            // The highlight is drawn inside the editor itself, so the text never moves or rewraps
+            RevealEditor(text: $text, reveal: reveal)
             .padding(14)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Retro.cream.opacity(0.3), lineWidth: 1.5))
@@ -853,76 +842,131 @@ struct TestTab: View {
         guard words.contains(where: { $0.changed }) else { return }
         let r = Reveal(words: words, start: Date())
         reveal = r
-        DispatchQueue.main.asyncAfter(deadline: .now() + RevealText.duration(words)) {
-            if reveal?.start == r.start { withAnimation(.easeOut(duration: 0.2)) { reveal = nil } }
+        DispatchQueue.main.asyncAfter(deadline: .now() + RevealEditor.duration(words)) {
+            if reveal?.start == r.start { reveal = nil }
         }
     }
 }
 
-/// Fixed text where each replaced word lights up in the rainbow stripe colours, one after another,
-/// is retyped in place from the typo to the fix (left to right, like a typewriter), then settles
-struct RevealText: View {
-    let reveal: TestTab.Reveal
+/// The Test tab's text box: an AppKit text view whose fixed words light up in the rainbow stripe colours,
+/// one after another, then fade. Colours are drawn on top of the laid-out text (temporary attributes),
+/// so nothing reflows while it plays.
+struct RevealEditor: NSViewRepresentable {
+    @Binding var text: String
+    let reveal: TestTab.Reveal?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    static let lightUp = 0.15      // highlight fades in on the old word
-    static let settle = 1.0        // highlight fades out after the morph
+    static let font = NSFont.monospacedSystemFont(ofSize: 14, weight: .medium)
 
-    /// Spread the words over at most ~0.7 s however many there are, so long paragraphs don't drag
-    static func stagger(_ changed: Int) -> Double { min(0.08, 0.7 / Double(max(changed, 1))) }
-    static func morphTime(_ w: TestTab.Reveal.Word) -> Double { min(0.45, max(0.18, Double(max(w.old.count, w.text.count)) * 0.035)) }
-
-    /// How long the whole reveal runs, so the editor comes back right after
+    /// How long the highlight runs for these words
     static func duration(_ words: [TestTab.Reveal.Word]) -> Double {
-        let changed = words.filter(\.changed)
-        let lastMorph = changed.map(morphTime).max() ?? 0
-        return Double(max(changed.count - 1, 0)) * stagger(changed.count) + lightUp + lastMorph + 0.6 + settle
+        Double(max(words.filter(\.changed).count - 1, 0)) * stagger(words) + 1.6
+    }
+    /// Spread the words over at most ~0.7 s, so long paragraphs don't drag
+    static func stagger(_ words: [TestTab.Reveal.Word]) -> Double {
+        min(0.06, 0.7 / Double(max(words.filter(\.changed).count, 1)))
     }
 
-    var body: some View {
-        TimelineView(.animation) { ctx in
-            Text(attributed(elapsed: ctx.date.timeIntervalSince(reveal.start)))
-                .font(.terminal(14))   // same face as the editor, so words don't jump
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+    func makeNSView(context: Context) -> NSScrollView {
+        let tv = NSTextView(usingTextLayoutManager: false)   // TextKit 1, for temporary attributes
+        tv.font = Self.font
+        tv.textColor = NSColor(Retro.cream)
+        tv.insertionPointColor = NSColor(Retro.cream)
+        tv.drawsBackground = false
+        tv.isRichText = false
+        tv.allowsUndo = true
+        tv.isAutomaticQuoteSubstitutionEnabled = false
+        tv.isAutomaticSpellingCorrectionEnabled = false
+        tv.isContinuousSpellCheckingEnabled = false
+        tv.textContainerInset = .zero
+        tv.isVerticallyResizable = true
+        tv.autoresizingMask = [.width]
+        tv.textContainer?.widthTracksTextView = true
+        tv.string = text
+        tv.delegate = context.coordinator
+        let sv = NSScrollView()
+        sv.drawsBackground = false
+        sv.hasVerticalScroller = true
+        sv.autohidesScrollers = true
+        sv.documentView = tv
+        context.coordinator.textView = tv
+        return sv
+    }
+
+    func updateNSView(_ sv: NSScrollView, context: Context) {
+        let c = context.coordinator
+        c.parent = self
+        guard let tv = c.textView else { return }
+        if tv.string != text { tv.string = text; c.clear() }
+        if let r = reveal, r.start != c.playing { c.play(r, reduceMotion: reduceMotion) }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: RevealEditor
+        weak var textView: NSTextView?
+        var playing: Date?
+        private var timer: Timer?
+        private var ranges: [NSRange] = []
+        private var step = 0.06
+
+        init(_ parent: RevealEditor) { self.parent = parent }
+
+        func textDidChange(_ n: Notification) {
+            guard let tv = textView else { return }
+            clear()
+            parent.text = tv.string
         }
-    }
 
-    private func attributed(elapsed: Double) -> AttributedString {
-        var out = AttributedString()
-        var order = 0
-        let tints = Retro.stripes
-        let step = Self.stagger(reveal.words.filter(\.changed).count)
-        for (i, w) in reveal.words.enumerated() {
-            var word = AttributedString(w.text)
-            word.foregroundColor = Retro.cream
-            if w.changed {
-                // Stagger each word: light up on the typo, retype it into the fix, then fade the highlight out
-                let local = max(0, elapsed - Double(order) * step)
-                let morph = Self.morphTime(w)
-                let p = reduceMotion ? 1 : min(1, max(0, (local - Self.lightUp) / morph))
-                word = AttributedString(Self.retyped(from: w.old, to: w.text, progress: p))
-                word.foregroundColor = Retro.cream
-                let tint = tints[order % tints.count]
-                let hold = Self.lightUp + morph + 0.6
-                let strength = local < Self.lightUp ? local / Self.lightUp : max(0, 1 - (local - hold) / Self.settle)
-                if strength > 0 {
-                    word.backgroundColor = tint.opacity(min(1, strength) * 0.85)
-                    if strength > 0.4 { word.foregroundColor = Retro.screen }
-                }
-                order += 1
+        func play(_ r: TestTab.Reveal, reduceMotion: Bool) {
+            clear()
+            playing = r.start
+            step = RevealEditor.stagger(r.words)
+            // Word offsets in the fixed text (the diff split it on single spaces)
+            var at = 0
+            for w in r.words {
+                let len = (w.text as NSString).length
+                if w.changed, len > 0 { ranges.append(NSRange(location: at, length: len)) }
+                at += len + 1
             }
-            out += word
-            if i < reveal.words.count - 1 { out += AttributedString(" ") }
+            let end = RevealEditor.duration(r.words)
+            timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] t in
+                guard let self else { t.invalidate(); return }
+                let elapsed = Date().timeIntervalSince(r.start)
+                if elapsed >= end { self.clear(); return }
+                self.paint(elapsed: reduceMotion ? max(elapsed, 0.6) : elapsed)
+            }
         }
-        return out
-    }
 
-    /// The fix overwrites the typo letter by letter: "tomorow" → "tomorrw" → "tomorrow"
-    static func retyped(from old: String, to new: String, progress p: Double) -> String {
-        if p <= 0 { return old }
-        if p >= 1 { return new }
-        let k = Int((p * Double(max(old.count, new.count))).rounded(.down))
-        return String(new.prefix(k)) + String(old.dropFirst(k))
+        private func paint(elapsed: Double) {
+            guard let lm = textView?.layoutManager, let length = textView?.string.utf16.count else { return }
+            let tints = Retro.stripes
+            for (order, range) in ranges.enumerated() where NSMaxRange(range) <= length {
+                // Fade in, hold, fade out, each word a little after the one before
+                let local = max(0, elapsed - Double(order) * step)
+                let strength = min(1, local < 0.15 ? local / 0.15 : max(0, 1 - (local - 0.6) / 1.0))
+                if strength > 0 {
+                    lm.setTemporaryAttributes([
+                        .backgroundColor: NSColor(tints[order % tints.count]).withAlphaComponent(strength * 0.85),
+                        .foregroundColor: strength > 0.4 ? NSColor(Retro.screen) : NSColor(Retro.cream)
+                    ], forCharacterRange: range)
+                } else {
+                    lm.removeTemporaryAttribute(.backgroundColor, forCharacterRange: range)
+                    lm.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range)
+                }
+            }
+        }
+
+        func clear() {
+            timer?.invalidate(); timer = nil
+            if let tv = textView, let lm = tv.layoutManager {
+                let all = NSRange(location: 0, length: tv.string.utf16.count)
+                lm.removeTemporaryAttribute(.backgroundColor, forCharacterRange: all)
+                lm.removeTemporaryAttribute(.foregroundColor, forCharacterRange: all)
+            }
+            ranges = []
+        }
     }
 }
 
