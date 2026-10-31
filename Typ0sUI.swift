@@ -726,7 +726,8 @@ struct TestTab: View {
 
     /// Words shown with a fading highlight right after a fix
     struct Reveal {
-        let words: [(text: String, changed: Bool)]
+        struct Word { var text: String; var old: String; var changed: Bool }
+        let words: [Word]
         let start: Date
     }
 
@@ -738,6 +739,8 @@ struct TestTab: View {
     @State private var classicClean: String? = nil      // clean original, for scoring
     @State private var injected: Set<Int> = []          // word positions that got a slip
     @State private var score: String? = nil
+    @State private var busy = false      // a fix is running
+    @State private var fixing = false    // ...and has run long enough to say so
 
     private var setCount: Int {
         switch set {
@@ -781,9 +784,8 @@ struct TestTab: View {
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Retro.cream.opacity(0.3), lineWidth: 1.5))
 
             HStack(spacing: 12) {
-                Button("Fix", action: fix)
-                    .buttonStyle(RetroButtonStyle(lit: true))
-                    .keyboardShortcut(.return, modifiers: .command)
+                Button(fixing ? "Fixing…" : "Fix", action: fix)
+                    .buttonStyle(RetroButtonStyle(lit: true))                    .keyboardShortcut(.return, modifiers: .command)
                     .help("Fix (⌘↩)")
                 Button(set == .classic ? "New slips" : "Next example") {
                     load(set == .classic ? index : (index + 1) % setCount)
@@ -821,13 +823,24 @@ struct TestTab: View {
         }
     }
 
+    // One engine for the tab, made on the main thread (it reads the keyboard layouts there) and only used on
+    // its own queue, so the ms shown is the fix itself, not engine start-up
+    private static let engine = FastTypoEngine()
+    private static let queue = DispatchQueue(label: "typ0s.testfix", qos: .userInitiated)
+
     private func fix() {
+        guard !busy else { return }
         let before = text
-        DispatchQueue.global(qos: .userInitiated).async {   // Harper's grammar check takes ~0.3 s
+        let engine = TestTab.engine   // first use happens here, on the main thread
+        busy = true
+        reveal = nil
+        // Only say "Fixing…" if it's slow enough to notice, so quick fixes don't flicker the button
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { if busy { fixing = true } }
+        TestTab.queue.async {
             let t0 = CFAbsoluteTimeGetCurrent()
-            let after = FastTypoEngine().fixAll(before)
+            let after = engine.fixAll(before)
             let elapsed = (CFAbsoluteTimeGetCurrent() - t0) * 1000
-            DispatchQueue.main.async { show(before: before, after: after, ms: elapsed) }
+            DispatchQueue.main.async { busy = false; fixing = false; show(before: before, after: after, ms: elapsed) }
         }
     }
 
@@ -840,16 +853,31 @@ struct TestTab: View {
         guard words.contains(where: { $0.changed }) else { return }
         let r = Reveal(words: words, start: Date())
         reveal = r
-        DispatchQueue.main.asyncAfter(deadline: .now() + RevealText.duration) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + RevealText.duration(words)) {
             if reveal?.start == r.start { withAnimation(.easeOut(duration: 0.2)) { reveal = nil } }
         }
     }
 }
 
-/// Fixed text where each replaced word lights up in the rainbow stripe colours, one after another, then settles
+/// Fixed text where each replaced word lights up in the rainbow stripe colours, one after another,
+/// is retyped in place from the typo to the fix (left to right, like a typewriter), then settles
 struct RevealText: View {
-    static let duration: Double = 2.0
     let reveal: TestTab.Reveal
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    static let lightUp = 0.15      // highlight fades in on the old word
+    static let settle = 1.0        // highlight fades out after the morph
+
+    /// Spread the words over at most ~0.7 s however many there are, so long paragraphs don't drag
+    static func stagger(_ changed: Int) -> Double { min(0.08, 0.7 / Double(max(changed, 1))) }
+    static func morphTime(_ w: TestTab.Reveal.Word) -> Double { min(0.45, max(0.18, Double(max(w.old.count, w.text.count)) * 0.035)) }
+
+    /// How long the whole reveal runs, so the editor comes back right after
+    static func duration(_ words: [TestTab.Reveal.Word]) -> Double {
+        let changed = words.filter(\.changed)
+        let lastMorph = changed.map(morphTime).max() ?? 0
+        return Double(max(changed.count - 1, 0)) * stagger(changed.count) + lightUp + lastMorph + 0.6 + settle
+    }
 
     var body: some View {
         TimelineView(.animation) { ctx in
@@ -863,14 +891,20 @@ struct RevealText: View {
         var out = AttributedString()
         var order = 0
         let tints = Retro.stripes
+        let step = Self.stagger(reveal.words.filter(\.changed).count)
         for (i, w) in reveal.words.enumerated() {
             var word = AttributedString(w.text)
             word.foregroundColor = Retro.cream
             if w.changed {
-                // Stagger each word, then fade its highlight out
-                let local = max(0, elapsed - Double(order) * 0.06)
+                // Stagger each word: light up on the typo, retype it into the fix, then fade the highlight out
+                let local = max(0, elapsed - Double(order) * step)
+                let morph = Self.morphTime(w)
+                let p = reduceMotion ? 1 : min(1, max(0, (local - Self.lightUp) / morph))
+                word = AttributedString(Self.retyped(from: w.old, to: w.text, progress: p))
+                word.foregroundColor = Retro.cream
                 let tint = tints[order % tints.count]
-                let strength = local < 0.15 ? local / 0.15 : max(0, 1 - (local - 0.6) / 1.0)
+                let hold = Self.lightUp + morph + 0.6
+                let strength = local < Self.lightUp ? local / Self.lightUp : max(0, 1 - (local - hold) / Self.settle)
                 if strength > 0 {
                     word.backgroundColor = tint.opacity(min(1, strength) * 0.85)
                     if strength > 0.4 { word.foregroundColor = Retro.screen }
@@ -882,11 +916,20 @@ struct RevealText: View {
         }
         return out
     }
+
+    /// The fix overwrites the typo letter by letter: "tomorow" → "tomorrw" → "tomorrow"
+    static func retyped(from old: String, to new: String, progress p: Double) -> String {
+        if p <= 0 { return old }
+        if p >= 1 { return new }
+        let k = Int((p * Double(max(old.count, new.count))).rounded(.down))
+        return String(new.prefix(k)) + String(old.dropFirst(k))
+    }
 }
 
-/// Marks which words in the new text are new or changed (longest-common-subsequence on words)
+/// Marks which words in the new text are new or changed (longest-common-subsequence on words).
+/// A changed word carries the old words it replaced, so the reveal can morph from one to the other.
 enum WordDiff {
-    static func mark(old: String, new: String) -> [(text: String, changed: Bool)] {
+    static func mark(old: String, new: String) -> [TestTab.Reveal.Word] {
         let a = old.components(separatedBy: " ")
         let b = new.components(separatedBy: " ")
         let n = a.count, m = b.count
@@ -896,14 +939,33 @@ enum WordDiff {
                 dp[i][j] = a[i] == b[j] ? dp[i + 1][j + 1] + 1 : max(dp[i + 1][j], dp[i][j + 1])
             }
         }
-        var kept = Set<Int>()
+        var out: [TestTab.Reveal.Word] = []
+        var dropped: [String] = []   // old words in the current gap, waiting for a new word to take them
         var i = 0, j = 0
-        while i < n && j < m {
-            if a[i] == b[j] { kept.insert(j); i += 1; j += 1 }
-            else if dp[i + 1][j] >= dp[i][j + 1] { i += 1 }
-            else { j += 1 }
+        func take(_ w: String) {
+            out.append(.init(text: w, old: dropped.joined(separator: " "), changed: true))
+            dropped = []
         }
-        return b.enumerated().map { ($0.element, !kept.contains($0.offset)) }
+        while i < n && j < m {
+            if a[i] == b[j] {
+                // Old words removed with nothing in their place fold into the word before them
+                if !dropped.isEmpty, let last = out.indices.last {
+                    out[last].old = (out[last].changed ? out[last].old : out[last].text) + " " + dropped.joined(separator: " ")
+                    out[last].changed = true
+                    dropped = []
+                }
+                out.append(.init(text: b[j], old: b[j], changed: false)); i += 1; j += 1
+            }
+            else if dp[i + 1][j] >= dp[i][j + 1] { dropped.append(a[i]); i += 1 }
+            else { take(b[j]); j += 1 }
+        }
+        dropped += a[i...]
+        for w in b[j...] { take(w) }
+        if !dropped.isEmpty, let last = out.indices.last {
+            out[last].old = (out[last].changed ? out[last].old : out[last].text) + " " + dropped.joined(separator: " ")
+            out[last].changed = true
+        }
+        return out
     }
 }
 
