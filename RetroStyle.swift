@@ -78,12 +78,27 @@ struct StripeFan: View {
     var width: CGFloat = 34
     var bar: CGFloat = 4
     var drawn = true
+    /// The bars' glow swells and fades slowly, one after another, like warm phosphor
+    var breathe = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
+        if breathe && !reduceMotion {
+            TimelineView(.animation(minimumInterval: 1.0 / 30)) { ctx in
+                bars(t: ctx.date.timeIntervalSinceReferenceDate)
+            }
+        } else {
+            bars(t: nil)
+        }
+    }
+
+    private func bars(t: Double?) -> some View {
         VStack(alignment: .trailing, spacing: bar * 0.6) {
             ForEach(Array(colors.enumerated()), id: \.offset) { i, c in
+                let glow = t.map { 0.75 + 0.55 * sin($0 * 2 * .pi / 3.2 - Double(i) * 0.7) } ?? 0.6
                 Rectangle().fill(c)
                     .frame(width: width * (0.55 + 0.15 * CGFloat(i)), height: bar)
-                    .retroGlow(c, 0.6)
+                    .retroGlow(c, glow)
                     .scaleEffect(x: drawn ? 1 : 0, anchor: .trailing)
                     .animation(.arrive(0.35).delay(drawn ? Double(i) * 0.06 : 0), value: drawn)
             }
@@ -116,16 +131,16 @@ func runSweep(_ value: Binding<CGFloat>, duration: Double) {
     DispatchQueue.main.async { withAnimation(.easeInOut(duration: duration)) { value.wrappedValue = 1 } }
 }
 
-/// The title: stripe fan running into an outlined badge. Every few seconds a soft light glides across it.
+/// The title: stripe fan running into an outlined badge. Its stripes glow and fade, and every few seconds a soft light glides across it.
 struct RetroLogo: View {
     var drawn = true
     @State private var shine: CGFloat = -1
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private let every = Timer.publish(every: 7, on: .main, in: .common).autoconnect()
+    private let every = Timer.publish(every: 3.5, on: .main, in: .common).autoconnect()
 
     var body: some View {
         HStack(spacing: 0) {
-            StripeFan(width: 30, bar: 4, drawn: drawn)
+            StripeFan(width: 30, bar: 4, drawn: drawn, breathe: true)
             Text("typ0s")
                 .font(.retro(26))
                 .foregroundColor(Retro.cream)
@@ -133,8 +148,8 @@ struct RetroLogo: View {
                 .padding(.horizontal, 10).padding(.vertical, 1)
                 .overlay(RoundedRectangle(cornerRadius: 5).stroke(Retro.cream, lineWidth: 2).retroGlow())
         }
-        .modifier(ShineSweep(progress: shine, colors: [Color.white.opacity(0.55)]))
-        .onReceive(every) { _ in if drawn && !reduceMotion { runSweep($shine, duration: 1.1) } }
+        .modifier(ShineSweep(progress: shine, colors: [Color.white.opacity(0.75)]))
+        .onReceive(every) { _ in if drawn && !reduceMotion { runSweep($shine, duration: 1.3) } }
     }
 }
 
@@ -173,8 +188,26 @@ struct RetroTabs: View {
         VStack(spacing: 10) {
             RetroSegmented(options: SettingsTab.allCases.map { ($0, $0.rawValue) }, selection: $tab, size: 15)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            LinearGradient(colors: Retro.stripes, startPoint: .leading, endPoint: .trailing)
-                .frame(height: 2)
+            DriftingRule()
+        }
+    }
+}
+
+/// The rainbow rule under the tabs: its colours drift slowly sideways, one full loop every 12 s
+struct DriftingRule: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { ctx in
+            GeometryReader { g in
+                let phase = ctx.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 12) / 12
+                // Two copies of the stripes side by side, slid along so the loop has no seam
+                LinearGradient(colors: Retro.stripes + Retro.stripes + [Retro.stripes[0]], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: g.size.width * 2)
+                    .offset(x: -g.size.width * phase)
+            }
+            .frame(height: 2)
+            .clipped()
+            .retroGlow(Retro.orange, 0.8)
         }
     }
 }
@@ -294,7 +327,7 @@ struct RetroKey: View {
                 let edge = listening ? Retro.yellow.opacity(blinkOn ? 1 : 0.5) : (inUse ? hue : Retro.cream.opacity(0.5))
                 HStack(spacing: 8) {
                     StripeFan(colors: inUse ? [hue, Retro.orange, Retro.yellow] : Array(repeating: Retro.cream.opacity(0.25), count: 3),
-                              width: 16, bar: 3)
+                              width: 16, bar: 3, breathe: inUse)
                     Text(label)
                         .font(.retro(20))
                         .foregroundColor(listening ? Retro.yellow : Retro.cream.opacity(inUse ? 1 : 0.72))
@@ -333,6 +366,7 @@ struct RecordingBar: View {
 struct RetroSettingsTab: View {
     @ObservedObject var state = Typ0sState.shared
     @Namespace private var ns
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -389,18 +423,20 @@ struct RetroSettingsTab: View {
     private func choice(_ word: String, _ mode: FixGate.Mode) -> some View {
         let chosen = state.fixMode == mode
         return Button { withAnimation(.snap) { state.fixMode = mode } } label: {
-            Text(word)
-                .font(.retro(22))
-                .foregroundColor(chosen ? Retro.orange : Retro.cream.opacity(0.62))
-                .retroGlow(Retro.orange, chosen ? 1 : 0)
-                .overlay(alignment: .bottom) {
-                    if chosen {
-                        Rectangle().fill(Retro.orange).frame(height: 2)
-                            .retroGlow(Retro.orange, 0.8)
-                            .matchedGeometryEffect(id: "underline", in: ns)
-                            .offset(y: 1)
-                    }
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !chosen || reduceMotion)) { ctx in
+                Text(word)
+                    .font(.retro(22))
+                    .foregroundColor(chosen ? Retro.orange : Retro.cream.opacity(0.62))
+                    .retroGlow(Retro.orange, chosen ? 0.9 + 0.5 * sin(ctx.date.timeIntervalSinceReferenceDate * 2 * .pi / 2.8) : 0)
+            }
+            .overlay(alignment: .bottom) {
+                if chosen {
+                    Rectangle().fill(Retro.orange).frame(height: 2)
+                        .retroGlow(Retro.orange, 0.8)
+                        .matchedGeometryEffect(id: "underline", in: ns)
+                        .offset(y: 1)
                 }
+            }
         }
         .buttonStyle(.plain)
     }
