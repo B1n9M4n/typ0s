@@ -4,7 +4,11 @@
 
 ![typ0s fixing a fast, messy sentence in Freewrite with one key (F14)](docs/demo.gif)
 
-*Typed fast in Freewrite, then one press of F14: `bnest` → best, `sdtop` → stop.*
+*Typed fast in Freewrite, then one press of F14: `trhinhk` → think, `comne` → come, `ytopu` → you.*
+
+![A tour of typ0s 1.0: the retro settings screen, bold or careful fixing, the Test tab and the floating pill](docs/tour.gif)
+
+*typ0s 1.0: a retro screen for your typo fixer. ([Watch it as a video](https://github.com/B1n9M4n/typ0s/releases/download/v1.0.0/typ0s-1.0-tour.mp4))*
 
 ## Why I made this
 
