@@ -561,6 +561,8 @@ struct Caption: View {
 struct FloatingPillView: View {
     @ObservedObject var state = Typ0sState.shared
     var onOpenSettings: () -> Void
+    @State private var sweep: CGFloat = -1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let ok = state.isFlashingSuccess
@@ -599,7 +601,10 @@ struct FloatingPillView: View {
             .help("Open typ0s")
         }
         .padding(.leading, 10).padding(.trailing, 5).padding(.vertical, 5)
-        .background(Capsule().fill(Retro.screen))
+        // After each fix the rainbow stripes sweep once across the pill, behind the text
+        .background(Capsule().fill(Retro.screen)
+            .modifier(ShineSweep(progress: sweep, colors: Retro.stripes.map { $0.opacity(0.45) })))
+        .onChange(of: ok) { if ok && !reduceMotion { runSweep($sweep, duration: 0.7) } }
         // The outline lights up in the rainbow for a moment after each fix
         .overlay(Capsule().strokeBorder(ok ? AnyShapeStyle(LinearGradient(colors: Retro.stripes, startPoint: .leading, endPoint: .trailing))
                                            : AnyShapeStyle(Retro.cream.opacity(0.3)), lineWidth: 1.2))

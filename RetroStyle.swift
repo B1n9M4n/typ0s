@@ -67,6 +67,8 @@ struct CRTOverlay: View {
 /// Confident arrival: fast start, long soft landing
 extension Animation {
     static func arrive(_ duration: Double) -> Animation { .timingCurve(0.16, 1, 0.3, 1, duration: duration) }
+    /// A small, quick bounce for controls snapping to a new choice
+    static let snap = Animation.spring(response: 0.3, dampingFraction: 0.62)
 }
 
 /// Stacked colour bars that taper toward the leading edge, the 80s logo stripe.
@@ -89,9 +91,38 @@ struct StripeFan: View {
     }
 }
 
-/// The title: stripe fan running into an outlined badge
+/// A soft band of light that glides across a view's own shape, from off the left edge (-1) to off the right (1)
+struct ShineSweep: ViewModifier {
+    var progress: CGFloat
+    var colors: [Color] = [Color.white.opacity(0.7)]
+    func body(content: Content) -> some View {
+        content.overlay(
+            GeometryReader { g in
+                let band = g.size.width * 0.45
+                LinearGradient(colors: [.clear] + colors + [.clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: band)
+                    .offset(x: (progress + 1) / 2 * (g.size.width + band) - band)
+            }
+            .mask(content)
+            .allowsHitTesting(false)
+        )
+    }
+}
+
+/// Run a sweep from -1 to 1: jump back to the start without animating, then glide across
+func runSweep(_ value: Binding<CGFloat>, duration: Double) {
+    var reset = Transaction(); reset.disablesAnimations = true
+    withTransaction(reset) { value.wrappedValue = -1 }
+    DispatchQueue.main.async { withAnimation(.easeInOut(duration: duration)) { value.wrappedValue = 1 } }
+}
+
+/// The title: stripe fan running into an outlined badge. Every few seconds a soft light glides across it.
 struct RetroLogo: View {
     var drawn = true
+    @State private var shine: CGFloat = -1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let every = Timer.publish(every: 7, on: .main, in: .common).autoconnect()
+
     var body: some View {
         HStack(spacing: 0) {
             StripeFan(width: 30, bar: 4, drawn: drawn)
@@ -102,7 +133,37 @@ struct RetroLogo: View {
                 .padding(.horizontal, 10).padding(.vertical, 1)
                 .overlay(RoundedRectangle(cornerRadius: 5).stroke(Retro.cream, lineWidth: 2).retroGlow())
         }
+        .modifier(ShineSweep(progress: shine, colors: [Color.white.opacity(0.55)]))
+        .onReceive(every) { _ in if drawn && !reduceMotion { runSweep($shine, duration: 1.1) } }
     }
+}
+
+/// A terminal line that types itself out when its text changes, with a block cursor blinking after it
+struct TypedLine: View {
+    let text: String
+    var color: Color = Retro.cyan
+    @State private var since = Date()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30)) { ctx in
+            let t = ctx.date.timeIntervalSince(since)
+            let shown = reduceMotion ? text.count : min(text.count, Int(t / 0.014))
+            let typing = shown < text.count
+            // Solid while typing, then a slow soft blink, like an old terminal waiting
+            let blink = typing ? 1 : (0.5 + 0.5 * cos(t * .pi / 0.55)).clamped(0.15, 1)
+            HStack(spacing: 1) {
+                Text(String(text.prefix(shown)))
+                Rectangle().frame(width: 6, height: 11).opacity(blink)
+            }
+            .font(.terminal(11)).foregroundColor(color)
+        }
+        .onChange(of: text) { since = Date() }
+    }
+}
+
+extension Double {
+    func clamped(_ lo: Double, _ hi: Double) -> Double { Swift.min(hi, Swift.max(lo, self)) }
 }
 
 /// Tabs as outlined badges, the chosen one lit, over a still rainbow rule
@@ -129,7 +190,7 @@ struct RetroSegmented<T: Hashable>: View {
         HStack(spacing: 6) {
             ForEach(options, id: \.0) { value, label in
                 let chosen = selection == value
-                Button { withAnimation(.arrive(0.24)) { selection = value } } label: {
+                Button { withAnimation(.snap) { selection = value } } label: {
                     Text(label)
                         .font(.retro(size))
                         .foregroundColor(chosen ? Retro.screen : Retro.cream.opacity(0.75))
@@ -164,9 +225,11 @@ struct RetroToggleStyle: ToggleStyle {
                     .fill(configuration.isOn ? Retro.cyan : Retro.cream.opacity(0.3))
                     .frame(width: 18, height: 12)
                     .retroGlow(Retro.cyan, configuration.isOn ? 1 : 0)
+                    // The block stretches a little as it travels, then settles back to its size
+                    .modifier(TravelStretch(on: configuration.isOn))
                     .padding(.horizontal, 4)
             }
-            .animation(.easeOut(duration: 0.12), value: configuration.isOn)
+            .animation(.snap, value: configuration.isOn)
             .opacity(isEnabled ? 1 : 0.4)
             .contentShape(Rectangle())
             .onTapGesture { if isEnabled { configuration.isOn.toggle() } }
@@ -185,7 +248,23 @@ struct RetroButtonStyle: ButtonStyle {
             .background(RoundedRectangle(cornerRadius: 4).fill(lit ? Retro.cream : .clear))
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(Retro.cream, lineWidth: 1.5))
             .retroGlow(Retro.cream, 0.7)
-            .opacity(configuration.isPressed ? 0.6 : 1)
+            .opacity(configuration.isPressed ? 0.75 : 1)
+            .scaleEffect(configuration.isPressed ? 0.95 : 1)
+            .animation(.snap, value: configuration.isPressed)
+    }
+}
+
+/// Squash-and-stretch for the toggle block: wider for a moment while it moves
+struct TravelStretch: ViewModifier {
+    var on: Bool
+    @State private var stretch: CGFloat = 1
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(x: stretch, y: 1 - (stretch - 1) * 0.4, anchor: on ? .trailing : .leading)
+            .onChange(of: on) {
+                withAnimation(.easeOut(duration: 0.08)) { stretch = 1.35 }
+                withAnimation(.snap.delay(0.08)) { stretch = 1 }
+            }
     }
 }
 
@@ -274,8 +353,7 @@ struct RetroSettingsTab: View {
                     choice("carefully", .careful)
                 }
                 .padding(.top, 4)
-                Text(state.fixMode == .bold ? "> Bold fixes more of your messy words" : "> Careful only fixes when it's very sure")
-                    .font(.terminal(11)).foregroundColor(Retro.cyan)
+                TypedLine(text: state.fixMode == .bold ? "> Bold fixes more of your messy words" : "> Careful only fixes when it's very sure")
             }
             RecordingBar()
             rows
@@ -310,7 +388,7 @@ struct RetroSettingsTab: View {
     /// A word you click to choose; the chosen one is lit, and its orange underline slides across to a new choice
     private func choice(_ word: String, _ mode: FixGate.Mode) -> some View {
         let chosen = state.fixMode == mode
-        return Button { withAnimation(.arrive(0.28)) { state.fixMode = mode } } label: {
+        return Button { withAnimation(.snap) { state.fixMode = mode } } label: {
             Text(word)
                 .font(.retro(22))
                 .foregroundColor(chosen ? Retro.orange : Retro.cream.opacity(0.62))
