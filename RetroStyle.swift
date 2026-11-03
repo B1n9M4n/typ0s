@@ -131,7 +131,9 @@ func runSweep(_ value: Binding<CGFloat>, duration: Double) {
     DispatchQueue.main.async { withAnimation(.easeInOut(duration: duration)) { value.wrappedValue = 1 } }
 }
 
-/// The title: stripe fan running into an outlined badge. Its stripes glow and fade, and every few seconds a soft light glides across it.
+/// The title: stripe fan running into an outlined badge, shown like it's on a little CRT:
+/// fine scanlines, a red/cyan colour fringe that drifts gently, and a soft refresh line rolling down.
+/// Its stripes glow and fade, and every few seconds a soft light glides across it.
 struct RetroLogo: View {
     var drawn = true
     @State private var shine: CGFloat = -1
@@ -141,15 +143,51 @@ struct RetroLogo: View {
     var body: some View {
         HStack(spacing: 0) {
             StripeFan(width: 30, bar: 4, drawn: drawn, breathe: true)
-            Text("typ0s")
-                .font(.retro(26))
-                .foregroundColor(Retro.cream)
-                .retroGlow()
-                .padding(.horizontal, 10).padding(.vertical, 1)
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(Retro.cream, lineWidth: 2).retroGlow())
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { ctx in
+                badge(t: reduceMotion ? 0 : ctx.date.timeIntervalSinceReferenceDate)
+            }
         }
         .modifier(ShineSweep(progress: shine, colors: [Color.white.opacity(0.75)]))
         .onReceive(every) { _ in if drawn && !reduceMotion { runSweep($shine, duration: 1.3) } }
+    }
+
+    private func badge(t: Double) -> some View {
+        // The colour fringe: how far the red and cyan ghosts sit from the cream, 0.6–1.6 px
+        let split = 1.1 + 0.5 * sin(t * 2 * .pi / 4)
+        // The refresh line's height in the badge, 0 (top) to 1 (bottom), once every 2.6 s
+        let roll = CGFloat((t.truncatingRemainder(dividingBy: 2.6)) / 2.6)
+        let word = Text("typ0s").font(.retro(26))
+        return ZStack {
+            word.foregroundColor(Retro.red.opacity(0.55)).offset(x: -split)
+            word.foregroundColor(Retro.cyan.opacity(0.55)).offset(x: split)
+            word.foregroundColor(Retro.cream).retroGlow()
+        }
+        .compositingGroup()
+        .padding(.horizontal, 10).padding(.vertical, 1)
+        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Retro.cream, lineWidth: 2).retroGlow())
+        .overlay(
+            GeometryReader { g in
+                ZStack(alignment: .top) {
+                    Scanlines(spacing: 2.5).fill(Color.black.opacity(0.35))
+                    LinearGradient(colors: [.clear, Retro.cream.opacity(0.22), .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 8)
+                        .offset(y: roll * (g.size.height + 8) - 8)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .allowsHitTesting(false)
+        )
+    }
+}
+
+/// Thin horizontal lines across a shape, like the rows of a CRT
+struct Scanlines: Shape {
+    var spacing: CGFloat = 3
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        var y = r.minY
+        while y < r.maxY { p.addRect(CGRect(x: r.minX, y: y, width: r.width, height: 1)); y += spacing }
+        return p
     }
 }
 
