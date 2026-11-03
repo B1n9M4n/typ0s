@@ -44,8 +44,8 @@ It works in any app where you type, not just Freewrite.
 
 ## Install
 
-1. Download `typ0s-x.y.z.zip` from the [Releases](../../releases) page and unzip it.
-2. Drag **typ0s.app** into your **Applications** folder.
+1. Download `typ0s-x.y.z.dmg` from the [Releases](../../releases) page and open it.
+2. Drag **typ0s** onto the **Applications** folder in the window that opens.
 3. Open it. macOS will say it can't check the app (it isn't from the App Store or a paid Apple developer account):
    - Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to typ0s.
    - Or, in Terminal: `xattr -dr com.apple.quarantine /Applications/typ0s.app`
@@ -75,7 +75,7 @@ cd typ0s
 open build/typ0s.app
 ```
 
-`build.sh` makes `build/typ0s.app` (Apple Silicon + Intel) and a zip for sharing. To include the Harper grammar check, run `brew install harper` first; `build.sh` bundles it when it's installed. An app you build yourself doesn't get the "can't check this app" warning.
+`build.sh` makes `build/typ0s.app` (Apple Silicon + Intel) and a disk image and zip for sharing (the disk image step installs `dmgbuild` from PyPI into a cached virtualenv the first time). To include the Harper grammar check, run `brew install harper` first; `build.sh` bundles it when it's installed. An app you build yourself doesn't get the "can't check this app" warning.
 
 ## Privacy
 

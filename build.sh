@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds typ0s.app (Apple Silicon + Intel) and a shareable zip into ./build
+# Builds typ0s.app (Apple Silicon + Intel), a disk image with the retro install window, and a zip into ./build
 # Needs Xcode Command Line Tools:  xcode-select --install
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -85,4 +85,14 @@ codesign --force --sign "$SIGN_ID" "$APP"
 echo "→ Zipping for sharing…"
 ditto -c -k --norsrc --keepParent "$APP" "$OUT/typ0s-$VERSION.zip"
 
-echo "✓ Done: $APP  and  $OUT/typ0s-$VERSION.zip"
+echo "→ Making the install disk image…"
+# dmgbuild (Python) writes the window layout itself, so Finder doesn't need to be scripted.
+# It lives in a cached virtualenv outside ./build, which is wiped on every build.
+DMG_VENV="$HOME/Library/Caches/typ0s/dmgbuild-venv"
+if [ ! -x "$DMG_VENV/bin/dmgbuild" ]; then
+  python3 -m venv "$DMG_VENV" && "$DMG_VENV/bin/pip" install -q dmgbuild
+fi
+"$DMG_VENV/bin/dmgbuild" -s assets/dmg/settings.py -D app="$APP" -D background=assets/dmg/background.tiff \
+  typ0s "$OUT/typ0s-$VERSION.dmg" >/dev/null
+
+echo "✓ Done: $APP, $OUT/typ0s-$VERSION.dmg  and  $OUT/typ0s-$VERSION.zip"
