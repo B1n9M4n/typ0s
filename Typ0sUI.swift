@@ -483,7 +483,7 @@ enum LogoImages {
 
     /// 1024px app icon PNG on Apple's icon grid (used by build.sh to make AppIcon.icns)
     @MainActor static func writeAppIconPNG(to path: String) -> Bool {
-        let r = ImageRenderer(content: TyposLogo(size: 824).padding(100))
+        let r = ImageRenderer(content: RetroAppIcon(size: 824).padding(100))
         r.scale = 1
         guard let img = r.nsImage, let tiff = img.tiffRepresentation,
               let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return false }

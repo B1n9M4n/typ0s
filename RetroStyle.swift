@@ -507,3 +507,33 @@ struct RetroSettingsTab: View {
 struct Line: Shape {
     func path(in r: CGRect) -> Path { Path { $0.move(to: CGPoint(x: 0, y: r.midY)); $0.addLine(to: CGPoint(x: r.maxX, y: r.midY)) } }
 }
+
+/// The app icon: a black CRT squircle with the rainbow fan running into a glowing text cursor
+struct RetroAppIcon: View {
+    var size: CGFloat
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: size * 0.225, style: .continuous)
+        ZStack {
+            shape.fill(Retro.screen)
+            shape.fill(RadialGradient(colors: [Color.white.opacity(0.08), .clear], center: .init(x: 0.5, y: 0.35),
+                                      startRadius: 0, endRadius: size * 0.7))
+            // Centred as one group with room around it, so nothing feels cropped
+            HStack(spacing: size * 0.04) {
+                StripeFan(width: size * 0.34, bar: size * 0.048)
+                VStack(spacing: 0) {
+                    Capsule().frame(width: size * 0.18, height: size * 0.048)
+                    Rectangle().frame(width: size * 0.048, height: size * 0.34)
+                    Capsule().frame(width: size * 0.18, height: size * 0.048)
+                }
+                .foregroundColor(Retro.cream)
+                .shadow(color: Retro.cream.opacity(0.6), radius: size * 0.018)
+                .shadow(color: Retro.cream.opacity(0.3), radius: size * 0.07)
+            }
+            .frame(width: size, height: size)
+            .clipShape(shape)
+            Scanlines(spacing: size / 90).fill(Color.black.opacity(0.28)).clipShape(shape)
+            shape.strokeBorder(Retro.cream.opacity(0.18), lineWidth: size * 0.012)
+        }
+        .frame(width: size, height: size)
+    }
+}
