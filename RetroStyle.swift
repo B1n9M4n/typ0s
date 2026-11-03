@@ -162,7 +162,8 @@ struct TypedLine: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30)) { ctx in
-            let t = ctx.date.timeIntervalSince(since)
+            // The frame time can land a moment before `since` right after a change: never go below zero
+            let t = max(0, ctx.date.timeIntervalSince(since))
             let shown = reduceMotion ? text.count : min(text.count, Int(t / 0.014))
             let typing = shown < text.count
             // Solid while typing, then a slow soft blink, like an old terminal waiting
