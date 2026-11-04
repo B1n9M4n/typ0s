@@ -120,19 +120,8 @@ class UserDictionaryStore: ObservableObject {
         }
     }
     
-    /// Typing practice: you typed `typo` while the passage showed `fix`, so the pair is certain and counts at once
-    func notePracticeFixes(_ pairs: [(typo: String, fix: String)]) {
-        DispatchQueue.main.async { self.count(pairs) }
-    }
-
     private func commitPendingFixes() {
-        count(pendingFixes)
-        pendingFixes = []
-        pendingCommit = nil
-    }
-
-    private func count(_ pairs: [(typo: String, fix: String)]) {
-        for (typo, fix) in pairs {
+        for (typo, fix) in pendingFixes {
             let key = typo + "\u{1F}" + fix
             let count = (typoCounts[key] ?? 0) + 1
             typoCounts[key] = count
@@ -142,6 +131,8 @@ class UserDictionaryStore: ObservableObject {
             }
         }
         UserDefaults.standard.set(typoCounts, forKey: typoCountsKey)
+        pendingFixes = []
+        pendingCommit = nil
     }
     
     private func save() {
@@ -160,157 +151,6 @@ class UserDictionaryStore: ObservableObject {
            let decoded = try? JSONDecoder().decode([CustomRule].self, from: data) {
             customRules = decoded
         }
-    }
-}
-
-/// Your hands' slip habits, learned from typing practice: which keys you mix up, add, drop or swap.
-/// In practice typ0s knows the word you meant, so every slip is a certain example.
-/// Only letters a–z are tracked; a habit needs 2 sightings before it counts.
-final class KeyHabits {
-    static let shared = KeyHabits()
-
-    enum Slip: Hashable {
-        case sub(typed: Character, meant: Character)   // hit the wrong key
-        case extra(Character)                          // an extra key got in
-        case missed(Character)                         // a key didn't register
-        case swap(Character, Character)                // two keys in the wrong order (as typed)
-
-        var label: String {
-            switch self {
-            case let .sub(t, m): return "\(m) → \(t)"
-            case let .extra(c): return "extra \(c)"
-            case let .missed(c): return "missed \(c)"
-            case let .swap(a, b): return "\(b)\(a) → \(a)\(b)"
-            }
-        }
-        fileprivate var key: String {
-            switch self {
-            case let .sub(t, m): return "s\(t)\(m)"
-            case let .extra(c): return "e\(c)"
-            case let .missed(c): return "m\(c)"
-            case let .swap(a, b): return "w\(a)\(b)"
-            }
-        }
-    }
-
-    /// Cost multipliers for the edit distance, read once per comparison. All 1 when there's no practice data.
-    struct Table {
-        fileprivate var subs = [Double](repeating: 1, count: 26 * 26)
-        fileprivate var extras = [Double](repeating: 1, count: 26)
-        fileprivate var misses = [Double](repeating: 1, count: 26)
-        fileprivate var swaps = [Double](repeating: 1, count: 26 * 26)
-        var isEmpty = true
-
-        fileprivate static func i(_ c: Character) -> Int? {
-            guard let a = c.asciiValue, a >= 97, a <= 122 else { return nil }
-            return Int(a) - 97
-        }
-        func sub(typed: Character, meant: Character) -> Double {
-            guard let a = Self.i(typed), let b = Self.i(meant) else { return 1 }
-            return subs[a * 26 + b]
-        }
-        func extra(_ c: Character) -> Double { Self.i(c).map { extras[$0] } ?? 1 }
-        func missed(_ c: Character) -> Double { Self.i(c).map { misses[$0] } ?? 1 }
-        func swap(_ a: Character, _ b: Character) -> Double {
-            guard let x = Self.i(a), let y = Self.i(b) else { return 1 }
-            return swaps[x * 26 + y]
-        }
-    }
-
-    private let defaultsKey = "typ0s_KeyHabits_v1"
-    private let lock = NSLock()
-    private var counts: [String: Int]
-    private var table = Table()
-
-    private init() {
-        counts = UserDefaults.standard.dictionary(forKey: defaultsKey) as? [String: Int] ?? [:]
-        rebuild()
-    }
-
-    func snapshot() -> Table {
-        lock.lock(); defer { lock.unlock() }
-        return table
-    }
-
-    /// The habits seen most, for showing back to you
-    func top(_ n: Int) -> [(label: String, count: Int)] {
-        lock.lock(); defer { lock.unlock() }
-        return counts.filter { $0.value >= 2 }.sorted { $0.value > $1.value }.prefix(n).compactMap { k, v in
-            Self.slip(fromKey: k).map { ($0.label, v) }
-        }
-    }
-
-    func record(_ slips: [Slip]) {
-        guard !slips.isEmpty else { return }
-        lock.lock()
-        for s in slips { counts[s.key, default: 0] += 1 }
-        UserDefaults.standard.set(counts, forKey: defaultsKey)
-        rebuild()
-        lock.unlock()
-    }
-
-    /// 2 sightings → 0.84 of the usual cost, down to 0.6 at 5+ (kept modest: the ranker was trained on normal costs)
-    static func factor(_ count: Int) -> Double { count < 2 ? 1 : max(0.6, 1 - 0.08 * Double(min(count, 5))) }
-
-    private func rebuild() {   // call with the lock held
-        var t = Table()
-        for (k, v) in counts where v >= 2 {
-            guard let s = Self.slip(fromKey: k) else { continue }
-            let f = Self.factor(v)
-            switch s {
-            case let .sub(a, b): if let x = Table.i(a), let y = Table.i(b) { t.subs[x * 26 + y] = f; t.isEmpty = false }
-            case let .extra(a): if let x = Table.i(a) { t.extras[x] = f; t.isEmpty = false }
-            case let .missed(a): if let x = Table.i(a) { t.misses[x] = f; t.isEmpty = false }
-            case let .swap(a, b): if let x = Table.i(a), let y = Table.i(b) { t.swaps[x * 26 + y] = f; t.isEmpty = false }
-            }
-        }
-        table = t
-    }
-
-    private static func slip(fromKey k: String) -> Slip? {
-        let c = Array(k.dropFirst())
-        switch k.first {
-        case "s" where c.count == 2: return .sub(typed: c[0], meant: c[1])
-        case "e" where c.count == 1: return .extra(c[0])
-        case "m" where c.count == 1: return .missed(c[0])
-        case "w" where c.count == 2: return .swap(c[0], c[1])
-        default: return nil
-        }
-    }
-
-    /// The slips that turn `meant` into `typed` (lowercase letters only; anything else is ignored).
-    /// Plain Damerau–Levenshtein with a backtrace, so "teh" for "the" is one swap, not two wrong keys.
-    static func slips(typed: String, meant: String) -> [Slip] {
-        let a = Array(typed.lowercased().filter { $0.isLetter && $0.isASCII })
-        let b = Array(meant.lowercased().filter { $0.isLetter && $0.isASCII })
-        let m = a.count, n = b.count
-        if a == b || m == 0 || n == 0 { return [] }
-        var d = Array(repeating: Array(repeating: 0, count: n + 1), count: m + 1)
-        for i in 0...m { d[i][0] = i }
-        for j in 0...n { d[0][j] = j }
-        for i in 1...m {
-            for j in 1...n {
-                d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1))
-                if i > 1, j > 1, a[i - 1] == b[j - 2], a[i - 2] == b[j - 1] { d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1) }
-            }
-        }
-        // Too far apart to be slips of the same word (the words got out of step): learn nothing from it
-        if d[m][n] > max(2, n / 2) { return [] }
-        var out: [Slip] = []
-        var i = m, j = n
-        while i > 0 || j > 0 {
-            if i > 1, j > 1, a[i - 1] == b[j - 2], a[i - 2] == b[j - 1], a[i - 1] != a[i - 2], d[i][j] == d[i - 2][j - 2] + 1 {
-                out.append(.swap(a[i - 2], a[i - 1])); i -= 2; j -= 2
-            } else if i > 0, j > 0, d[i][j] == d[i - 1][j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1) {
-                if a[i - 1] != b[j - 1] { out.append(.sub(typed: a[i - 1], meant: b[j - 1])) }
-                i -= 1; j -= 1
-            } else if i > 0, d[i][j] == d[i - 1][j] + 1 {
-                out.append(.extra(a[i - 1])); i -= 1
-            } else {
-                out.append(.missed(b[j - 1])); j -= 1
-            }
-        }
-        return out.reversed()
     }
 }
 
@@ -782,46 +622,33 @@ class FastTypoEngine {
         if m == 0 { return Double(n) }
         if n == 0 { return Double(m) }
         
-        // Slips your own hands make often (learned from typing practice) cost a little less; 1 = no habit
-        let habits = KeyHabits.shared.snapshot()
-
         // Removing a typed key is cheap when it sits next to a neighbouring key (it bled in while typing)
         func delCost(_ i: Int) -> Double {
-            let base: Double
             if (i > 1 && qwertyKeyDistance(s[i - 1], s[i - 2]) <= 0.55) ||
                (i < m && qwertyKeyDistance(s[i - 1], s[i]) <= 0.55) {
-                base = Self.tuning.bledKey // Adjacent key-bleed (like 'n' in 'nlife', 'w' in 'tewrm', 'y' in 'uyse')
-            } else {
-                base = Self.tuning.extraKey
+                return Self.tuning.bledKey // Adjacent key-bleed (like 'n' in 'nlife', 'w' in 'tewrm', 'y' in 'uyse')
             }
-            return habits.isEmpty ? base : base * habits.extra(s[i - 1])
+            return Self.tuning.extraKey
         }
         var dp = Array(repeating: Array(repeating: 0.0, count: n + 1), count: m + 1)
         for i in 1...m { dp[i][0] = dp[i - 1][0] + delCost(i) }   // leading bleed ("nbewt") is as cheap as anywhere else
-        let missedBase = Self.tuning.missedKey
-        func missed(_ j: Int) -> Double { habits.isEmpty ? missedBase : missedBase * habits.missed(t[j - 1]) }
-        if habits.isEmpty {
-            for j in 1...n { dp[0][j] = Double(j) * missedBase }
-        } else {
-            for j in 1...n { dp[0][j] = dp[0][j - 1] + missed(j) }
-        }
+        let missed = Self.tuning.missedKey
+        for j in 1...n { dp[0][j] = Double(j) * missed }
 
         for i in 1...m {
             for j in 1...n {
-                var subCost = qwertyKeyDistance(s[i - 1], t[j - 1])
-                if !habits.isEmpty && subCost > 0 { subCost *= habits.sub(typed: s[i - 1], meant: t[j - 1]) }
+                let subCost = qwertyKeyDistance(s[i - 1], t[j - 1])
                 let delCost = delCost(i)
                 
                 dp[i][j] = min(
                     dp[i - 1][j] + delCost,
-                    dp[i][j - 1] + missed(j),   // a key that didn't register (very common when typing fast)
+                    dp[i][j - 1] + missed,   // a key that didn't register (very common when typing fast)
                     dp[i - 1][j - 1] + subCost
                 )
                 
                 // Transposition (e.g. 'ik' -> 'ki' in 'maijkng' -> 'making', 'el' -> 'le' in 'uselful')
                 if i > 1 && j > 1 && s[i - 1] == t[j - 2] && s[i - 2] == t[j - 1] {
-                    let swap = Self.tuning.swappedKeys * (habits.isEmpty ? 1 : habits.swap(s[i - 2], s[i - 1]))
-                    dp[i][j] = min(dp[i][j], dp[i - 2][j - 2] + swap)
+                    dp[i][j] = min(dp[i][j], dp[i - 2][j - 2] + Self.tuning.swappedKeys)
                 }
                 // Transposition across 1 neighbor bleed char (e.g. 'ijk' where 'j' bled between 'i' and 'k'!)
                 if i > 2 && j > 1 && s[i - 1] == t[j - 2] && s[i - 3] == t[j - 1] {

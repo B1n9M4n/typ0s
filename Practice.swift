@@ -2,7 +2,8 @@ import SwiftUI
 
 /// Typing practice on classic texts: the passage sits on screen and you type over it, word by word.
 /// Backspace is off, like Freewrite, so your slips are the ones you really make. Because the passage shows
-/// the word you meant, every slip is a certain example: typ0s learns typo → word rules and your hands' habits.
+/// the word you meant, every run is a labelled example. Runs are only saved (PracticeData) for training typ0s
+/// later; practising doesn't change how typ0s fixes.
 struct PracticeLane: View {
     let text: String
     var onNext: () -> Void
@@ -120,60 +121,76 @@ struct PracticeLane: View {
     private func finish() {
         let seconds = max(1, Date().timeIntervalSince(started ?? Date()))
         let r = PracticeResult.make(typed: typed, words: words, seconds: seconds)
-        r.learn()
+        PracticeData.save(typed: typed.joined(separator: " "), meant: text)
         result = r
     }
 }
 
-/// What one run of a passage produced, and what typ0s learns from it
+/// What one run of a passage produced
 struct PracticeResult {
     var wpm: Int
     var accuracy: Int                                  // % of words typed exactly right
     var slips: [(typed: String, meant: String)]       // words you got wrong, as typed
-    var keySlips: [KeyHabits.Slip]
-    private static let engine = FastTypoEngine()
 
     static func make(typed: [String], words: [String], seconds: Double) -> PracticeResult {
         var right = 0
         var slips: [(String, String)] = []
-        var keys: [KeyHabits.Slip] = []
         for (t, w) in zip(typed, words) {
-            if t == w { right += 1; continue }
-            let (tc, wc) = (core(t), core(w))
-            if tc == wc { right += 1; continue }        // only punctuation or capitals differ: not a typo
-            slips.append((t, w))
-            keys += KeyHabits.slips(typed: tc, meant: wc)
+            if core(t) == core(w) { right += 1 } else { slips.append((t, w)) }   // capitals and punctuation aren't typos
         }
         let chars = typed.joined(separator: " ").count
         return PracticeResult(wpm: Int(Double(chars) / 5 / (seconds / 60)),
                               accuracy: words.isEmpty ? 0 : right * 100 / words.count,
-                              slips: slips, keySlips: keys)
+                              slips: slips)
     }
 
     /// Lowercase letters and apostrophes only, for comparing words
     static func core(_ s: String) -> String {
         String(s.lowercased().map { $0 == "’" ? "'" : $0 }.filter { $0.isLetter || $0 == "'" })
     }
+}
 
-    /// Hand habits learn from every slip. Typo rules only come from typos that aren't real words
-    /// ("form" for "from" would break the real word "form"), and still need to be seen twice.
-    func learn() {
-        KeyHabits.shared.record(keySlips)
-        let pairs = slips.compactMap { s -> (typo: String, fix: String)? in
-            let (t, m) = (Self.core(s.typed), Self.core(s.meant))
-            guard !t.isEmpty, !m.isEmpty, !Self.engine.isValidWord(t), !KeyHabits.slips(typed: t, meant: m).isEmpty
-            else { return nil }
-            return (t, m)
+/// Your practice runs, kept on this Mac only for training and testing typ0s later:
+/// one line per run, what you typed, a tab, then the passage (the same typed⇥expected shape as typ0s's test data)
+enum PracticeData {
+    static var url: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("typ0s", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("practice.tsv")
+    }
+
+    static func save(typed: String, meant: String) {
+        let clean = { (s: String) in s.replacingOccurrences(of: "\t", with: " ").replacingOccurrences(of: "\n", with: " ") }
+        let line = clean(typed) + "\t" + clean(meant) + "\n"
+        if let h = try? FileHandle(forWritingTo: url) {
+            h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close()
+        } else {
+            try? line.write(to: url, atomically: true, encoding: .utf8)
         }
-        UserDictionaryStore.shared.notePracticeFixes(pairs)
+    }
+
+    /// How many runs and slipped words are saved so far
+    static func totals() -> (runs: Int, slips: Int) {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return (0, 0) }
+        var runs = 0, slips = 0
+        for line in text.split(separator: "\n") {
+            let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
+            guard parts.count == 2 else { continue }
+            runs += 1
+            let t = parts[0].split(separator: " "), m = parts[1].split(separator: " ")
+            slips += zip(t, m).filter { PracticeResult.core(String($0)) != PracticeResult.core(String($1)) }.count
+        }
+        return (runs, slips)
     }
 }
 
-/// The score after a passage: speed, accuracy, your slips, and the habits typ0s now knows about
+/// The score after a passage: speed, accuracy, your slips, and how much practice data is saved
 struct PracticeResultView: View {
     let result: PracticeResult
     var again: () -> Void
     var next: () -> Void
+    private let saved = PracticeData.totals()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -195,19 +212,19 @@ struct PracticeResultView: View {
                     }
                 }
             }
-            let habits = KeyHabits.shared.top(4)
-            if !habits.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("> your hands' habits, now part of fixing").font(.terminal(11)).foregroundColor(Retro.cyan)
-                    ForEach(Array(habits.enumerated()), id: \.offset) { _, h in
-                        Text("\(h.label)  ×\(h.count)").font(.terminal(13)).foregroundColor(Retro.cream.opacity(0.85))
-                    }
-                }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("> saved for training: \(saved.runs) \(saved.runs == 1 ? "run" : "runs"), \(saved.slips) slipped words")
+                    .font(.terminal(11)).foregroundColor(Retro.cyan)
+                Text("Kept on this Mac only. Practising doesn't change how typ0s fixes.")
+                    .font(.terminal(11)).foregroundColor(Retro.cream.opacity(0.7))
             }
             Spacer()
             HStack(spacing: 12) {
                 Button("Next text", action: next).buttonStyle(RetroButtonStyle(lit: true)).keyboardShortcut(.return, modifiers: [])
                 Button("Again", action: again).buttonStyle(RetroButtonStyle())
+                Spacer()
+                Button("Show data") { NSWorkspace.shared.activateFileViewerSelecting([PracticeData.url]) }
+                    .buttonStyle(RetroButtonStyle())
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
