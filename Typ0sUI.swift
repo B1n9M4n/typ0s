@@ -713,7 +713,7 @@ struct TestTab: View {
         "yesterday i finally cleaned my desk adn found so many random things. three pens that dont work, a charger for a phone i sold two years ago, a birthday card i forgot to send, and a tiny plant that somehow survived wihtout any water. i threw most of it away and now the desk feels huge. i also moved the lamp to the left side so the light doesnt hit the screen directly, which makes a big difference at night. the next step is the drawer, but i think taht can wait untill next weekend.",
         "my grandmother called this morning to ask if i was eating enough vegetables, which is her favourite question. we talked for almost an hour abotu her garden, the neighbours, and the new recipe she wants to try for the holidays. she is planning to make a huge pot of soup and freeze half of it so she doesnt have to cook every day. i promised to visit her next month and help her fix the gate taht keeps swinging open in the wind. she said she will make my favourite cake if i come early enough in the afternoon."
     ]
-    // Public-domain classics. The text is clean; realistic slips are injected each time one loads.
+    // Public-domain classics to practise typing on (the Practice set)
     static let classicSamples: [(text: String, source: String)] = [
         ("Begin the morning by saying to thyself, I shall meet with the busy-body, the ungrateful, arrogant, deceitful, envious, unsocial. All these things happen to them by reason of their ignorance of what is good and evil.",
          "Marcus Aurelius, Meditations (tr. George Long)"),
@@ -724,7 +724,19 @@ struct TestTab: View {
         ("Hold every hour in your grasp. Lay hold of to-day's task, and you will not need to depend so much upon to-morrow's. While we are postponing, life speeds by.",
          "Seneca, Moral Letters (tr. Richard Gummere)"),
         ("Men are disturbed not by things, but by the views which they take of things.",
-         "Epictetus, Enchiridion (tr. Thomas Higginson)")
+         "Epictetus, Enchiridion (tr. Thomas Higginson)"),
+        ("It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.",
+         "Jane Austen, Pride and Prejudice"),
+        ("Emma Woodhouse, handsome, clever, and rich, with a comfortable home and happy disposition, seemed to unite some of the best blessings of existence; and had lived nearly twenty-one years in the world with very little to distress or vex her.",
+         "Jane Austen, Emma"),
+        ("It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness, it was the epoch of belief, it was the epoch of incredulity, it was the season of Light, it was the season of Darkness, it was the spring of hope, it was the winter of despair.",
+         "Charles Dickens, A Tale of Two Cities"),
+        ("Four score and seven years ago our fathers brought forth on this continent, a new nation, conceived in Liberty, and dedicated to the proposition that all men are created equal.",
+         "Abraham Lincoln, Gettysburg Address"),
+        ("Our life is frittered away by detail. Simplify, simplify.",
+         "Henry David Thoreau, Walden"),
+        ("Alice was beginning to get very tired of sitting by her sister on the bank, and of having nothing to do: once or twice she had peeped into the book her sister was reading, but it had no pictures or conversations in it.",
+         "Lewis Carroll, Alice's Adventures in Wonderland")
     ]
 
     enum SampleSet: Hashable { case short, long, classic }
@@ -741,9 +753,6 @@ struct TestTab: View {
     @State private var text = TestTab.samples[0]
     @State private var ms: Double = 0
     @State private var reveal: Reveal? = nil
-    @State private var classicClean: String? = nil      // clean original, for scoring
-    @State private var injected: Set<Int> = []          // word positions that got a slip
-    @State private var score: String? = nil
     @State private var busy = false      // a fix is running
     @State private var fixing = false    // ...and has run long enough to say so
 
@@ -765,12 +774,23 @@ struct TestTab: View {
             HStack {
                 Text(caption.uppercased()).font(.terminal(11)).foregroundColor(Retro.cyan).lineLimit(1)
                 Spacer()
-                RetroSegmented(options: [(.short, "Short"), (.long, "Long"), (.classic, "Classic")], selection: $set)
+                RetroSegmented(options: [(.short, "Short"), (.long, "Long"), (.classic, "Practice")], selection: $set)
             }
             .onChange(of: set) { load(0) }
             // Hotkey fixes (⌥T, F14, Right Shift ×2) also show their time here, not just the Fix button
             .onChange(of: state.lastLatencyMs) { ms = state.lastLatencyMs }
 
+            if set == .classic {
+                // Type the passage yourself: your slips teach typ0s your typos and your hands' habits
+                PracticeLane(text: TestTab.classicSamples[index].text) { index = (index + 1) % setCount }
+            } else {
+                fixer
+            }
+        }
+    }
+
+    private var fixer: some View {
+        VStack(alignment: .leading, spacing: 16) {
             // The highlight is drawn inside the editor itself, so the text never moves or rewraps
             RevealEditor(text: $text, reveal: reveal)
             .padding(14)
@@ -781,39 +801,23 @@ struct TestTab: View {
                 Button(fixing ? "Fixing…" : "Fix", action: fix)
                     .buttonStyle(RetroButtonStyle(lit: true))                    .keyboardShortcut(.return, modifiers: .command)
                     .help("Fix (⌘↩)")
-                Button(set == .classic ? "New slips" : "Next example") {
-                    load(set == .classic ? index : (index + 1) % setCount)
-                }
-                .buttonStyle(RetroButtonStyle())
-                if set == .classic {
-                    Button("Next text") { load((index + 1) % setCount) }
-                        .buttonStyle(RetroButtonStyle())
-                }
+                Button("Next example") { load((index + 1) % setCount) }
+                    .buttonStyle(RetroButtonStyle())
                 Spacer()
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(ms > 0 ? String(format: "%.2f ms", ms) : "— ms")
-                        .font(.terminal(12))
-                        .foregroundColor(ms > 0 ? Retro.cyan : Retro.cream.opacity(0.6))
-                    if let score {
-                        Text(score).font(.terminal(11)).foregroundColor(Retro.orange)
-                    }
-                }
+                Text(ms > 0 ? String(format: "%.2f ms", ms) : "— ms")
+                    .font(.terminal(12))
+                    .foregroundColor(ms > 0 ? Retro.cyan : Retro.cream.opacity(0.6))
             }
         }
     }
 
     private func load(_ i: Int) {
         index = i
-        ms = 0; score = nil; reveal = nil
+        ms = 0; reveal = nil
         switch set {
-        case .short: text = TestTab.samples[i]; classicClean = nil
-        case .long: text = TestTab.longSamples[i]; classicClean = nil
-        case .classic:
-            let clean = TestTab.classicSamples[i].text
-            let slipped = TypoInjector.inject(into: clean)
-            text = slipped.text
-            injected = slipped.positions
-            classicClean = clean
+        case .short: text = TestTab.samples[i]
+        case .long: text = TestTab.longSamples[i]
+        case .classic: break   // the practice lane shows the passage itself
         }
     }
 
@@ -841,7 +845,6 @@ struct TestTab: View {
     private func show(before: String, after: String, ms elapsed: Double) {
         ms = elapsed
         text = after
-        if let clean = classicClean { score = TypoInjector.score(clean: clean, fixed: after, slips: injected) }
 
         let words = WordDiff.mark(old: before, new: after)
         guard words.contains(where: { $0.changed }) else { return }
@@ -1015,68 +1018,6 @@ enum WordDiff {
             out[last].changed = true
         }
         return out
-    }
-}
-
-/// Adds realistic fast-typing slips to clean text, and scores how well a fix recovered it
-enum TypoInjector {
-    private static let engine = FastTypoEngine()
-    private static let letters = Array("abcdefghijklmnopqrstuvwxyz")
-
-    private static func neighbours(of c: Character) -> [Character] {
-        letters.filter { $0 != c && engine.qwertyKeyDistance(c, $0) < 0.5 }
-    }
-
-    /// Splits a token into leading punctuation, letters, trailing punctuation
-    private static func split(_ token: String) -> (String, String, String) {
-        var core = Substring(token), pre = "", suf = ""
-        while let f = core.first, !f.isLetter { pre.append(f); core = core.dropFirst() }
-        while let l = core.last, !l.isLetter { suf.insert(l, at: suf.startIndex); core = core.dropLast() }
-        return (pre, String(core), suf)
-    }
-
-    static func inject(into clean: String) -> (text: String, positions: Set<Int>) {
-        var words = clean.components(separatedBy: " ")
-        let eligible = words.indices.filter {
-            let core = split(words[$0]).1
-            return core.count >= 4 && core.allSatisfy { $0.isLetter }
-        }
-        let count = min(eligible.count, max(3, eligible.count / 5))
-        let picked = Set(eligible.shuffled().prefix(count))
-        for i in picked {
-            let (pre, core, suf) = split(words[i])
-            words[i] = pre + slip(core) + suf
-        }
-        return (words.joined(separator: " "), picked)
-    }
-
-    /// One physical slip: neighbour key, swapped pair, switch chatter, dropped key, or key bleed
-    private static func slip(_ word: String) -> String {
-        var c = Array(word)
-        for _ in 0..<6 {
-            var t = c
-            let p = Int.random(in: 1..<t.count - 1)
-            let lower = Character(t[p].lowercased())
-            switch Int.random(in: 0..<5) {
-            case 0: if let n = neighbours(of: lower).randomElement() { t[p] = n }
-            case 1: if t[p] != t[p + 1] { t.swapAt(p, p + 1) }
-            case 2: t.insert(t[p], at: p)
-            case 3: t.remove(at: p)
-            default: if let n = neighbours(of: lower).randomElement() { t.insert(n, at: p + 1) }
-            }
-            if t != c { c = t; break }
-        }
-        return String(c)
-    }
-
-    static func score(clean: String, fixed: String, slips: Set<Int>) -> String {
-        func norm(_ s: String) -> String { s.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "'" } }
-        let a = clean.components(separatedBy: " ").map(norm)
-        let b = fixed.components(separatedBy: " ").map(norm)
-        guard a.count == b.count else { return "Word count changed (a split or join)" }
-        let recovered = slips.filter { a[$0] == b[$0] }.count
-        let wrong = a.indices.filter { !slips.contains($0) && a[$0] != b[$0] }.count
-        return "Recovered \(recovered) of \(slips.count) slips" + (wrong > 0 ? " · \(wrong) wrong change\(wrong == 1 ? "" : "s")" : "")
     }
 }
 
