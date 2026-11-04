@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-SOURCES=(Typ0sApp.swift Typ0sUI.swift RetroStyle.swift FastTypoEngine.swift WordModel.swift FixGate.swift RankModel.swift HarperGrammar.swift)
+SOURCES=(Typ0sApp.swift Typ0sUI.swift RetroStyle.swift Practice.swift FastTypoEngine.swift WordModel.swift FixGate.swift RankModel.swift HarperGrammar.swift)
 VERSION="1.0.0"
 MIN_MACOS="14.0"
 OUT="build"
